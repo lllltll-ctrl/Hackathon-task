@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+data/
+results/
+.pytest_cache/
+output.txt
+AI_TestTask.pdf
