@@ -44,6 +44,28 @@ def build_generation_prompt(
         f"Тип кейсу: {case_type_desc}",
     ]
 
+    # Додаткові інструкції залежно від типу кейсу
+    if case_type == "successful" and not has_hidden_dissatisfaction:
+        prompt_parts.append("")
+        prompt_parts.append(
+            "ВАЖЛИВО — Це УСПІШНИЙ кейс. Агент ПОВИНЕН реально вирішити проблему клієнта: "
+            "знайти конкретну причину, виконати дію (скинути пароль, повернути кошти, "
+            "змінити тариф, виправити помилку) і підтвердити що проблема вирішена. "
+            "Клієнт має бути ДІЙСНО задоволений результатом, а не просто отримати загальну пораду."
+        )
+    elif case_type == "problematic" and not has_hidden_dissatisfaction:
+        prompt_parts.append("")
+        prompt_parts.append(
+            "Це проблемний кейс: агент намагається допомогти, але рішення не ідеальне — "
+            "потрібні додаткові кроки, очікування, або компроміс. Проблема вирішена ЧАСТКОВО."
+        )
+    elif case_type == "conflict" and not has_hidden_dissatisfaction:
+        prompt_parts.append("")
+        prompt_parts.append(
+            "Це конфліктний кейс: клієнт емоційний, розчарований, може підвищувати тон. "
+            "Агент під тиском, ситуація напружена. Клієнт відкрито незадоволений."
+        )
+
     if has_hidden_dissatisfaction:
         prompt_parts.append("")
         prompt_parts.append(
