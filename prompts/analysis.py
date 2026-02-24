@@ -1,70 +1,70 @@
-"""Промпти для аналізу діалогів та оцінки якості підтримки."""
+"""Prompts for dialog analysis and support quality evaluation."""
 
-SYSTEM_PROMPT = """Ти — експерт з оцінки якості служби підтримки SaaS-платформи. Аналізуй діалоги детально та об'єктивно.
+SYSTEM_PROMPT = """You are an expert in evaluating SaaS platform support quality. Analyze dialogs thoroughly and objectively.
 
-КРИТИЧНО ВАЖЛИВО — виявлення ПРИХОВАНОЇ незадоволеності:
-Клієнт може формально дякувати та бути ввічливим, але бути насправді незадоволеним. Ознаки:
-- Клієнт каже «добре, спробую сам» — він НЕ отримав рішення і здався
-- «Дякую за інформацію» — коли інформація фактично не вирішує проблему
-- «Зрозумів, подивлюсь» — клієнт не отримав конкретної допомоги
-- Пасивна агресія: «Ну добре, мабуть так і є»
-- Сарказм: «Чудово, дуже допомогли» (коли не допомогли)
-- Клієнт припинив наполягати — це НЕ означає що він задоволений
+CRITICALLY IMPORTANT — detecting HIDDEN dissatisfaction:
+A client may formally thank and be polite, but actually be dissatisfied. Signs:
+- Client says 'okay, I'll try to figure it out myself' — they did NOT get a solution and gave up
+- 'Thanks for the information' — when the information doesn't actually solve the problem
+- 'I see, I'll look into it' — the client didn't receive concrete help
+- Passive aggression: 'Well, okay, I guess that's how it is'
+- Sarcasm: 'Great, very helpful' (when they weren't helped)
+- The client stopped insisting — this does NOT mean they are satisfied
 
-Якщо проблема клієнта фактично НЕ вирішена — satisfaction = "unsatisfied",
-навіть якщо клієнт формально ввічливий.
+If the client's problem was NOT actually resolved — satisfaction = "unsatisfied",
+even if the client is formally polite.
 
-Відповідай ТІЛЬКИ валідним JSON."""
+Respond ONLY with valid JSON."""
 
 
 def build_analysis_prompt(dialogue: list[dict]) -> str:
-    """Формує промпт для аналізу одного діалогу."""
+    """Build a prompt for analyzing a single dialog."""
 
-    # Форматуємо діалог як текст
+    # Format the dialog as text
     formatted_lines = []
     for msg in dialogue:
-        role_label = "Клієнт" if msg["role"] == "client" else "Агент"
+        role_label = "Client" if msg["role"] == "client" else "Agent"
         formatted_lines.append(f"{role_label}: {msg['text']}")
     dialogue_text = "\n".join(formatted_lines)
 
-    prompt = f"""Проаналізуй наступний діалог між клієнтом та саппорт-агентом:
+    prompt = f"""Analyze the following dialog between a client and a support agent:
 
 ---
 {dialogue_text}
 ---
 
-Визнач наступні параметри:
+Determine the following parameters:
 
-1. **intent** — категорія звернення. Обери ОДНУ з:
-   - payment_issue — проблеми з оплатою
-   - technical_error — технічні помилки
-   - account_access — доступ до акаунту
-   - tariff_question — питання по тарифу
-   - refund_request — повернення коштів
-   - other — інше
+1. **intent** — request category. Choose ONE of:
+   - payment_issue — payment problems
+   - technical_error — technical errors
+   - account_access — account access issues
+   - tariff_question — plan/pricing questions
+   - refund_request — refund requests
+   - other — other
 
-2. **satisfaction** — реальний рівень задоволеності клієнта. Обери ОДНЕ з:
-   - satisfied — клієнт дійсно задоволений, проблема повністю вирішена
-   - neutral — клієнт частково задоволений або байдужий
-   - unsatisfied — клієнт незадоволений (включаючи ПРИХОВАНУ незадоволеність!)
+2. **satisfaction** — the client's REAL satisfaction level. Choose ONE of:
+   - satisfied — the client is genuinely satisfied, problem fully resolved
+   - neutral — the client is partially satisfied or indifferent
+   - unsatisfied — the client is dissatisfied (including HIDDEN dissatisfaction!)
 
-3. **quality_score** — оцінка якості роботи агента від 1 до 5:
-   - 5 = Відмінно: проблема вирішена швидко та повністю
-   - 4 = Добре: проблема вирішена, але з незначними затримками
-   - 3 = Задовільно: проблема вирішена частково або потрібні додаткові кроки
-   - 2 = Погано: агент допустив помилки або не вирішив проблему
-   - 1 = Жахливо: грубість, повне ігнорування, критичні помилки
+3. **quality_score** — agent performance quality score from 1 to 5:
+   - 5 = Excellent: problem resolved quickly and completely
+   - 4 = Good: problem resolved, but with minor delays
+   - 3 = Satisfactory: problem partially resolved or additional steps needed
+   - 2 = Poor: agent made mistakes or didn't resolve the problem
+   - 1 = Terrible: rudeness, complete ignoring, critical errors
 
-4. **agent_mistakes** — список помилок агента (може бути порожнім []):
-   - ignored_question — агент проігнорував конкретне запитання клієнта
-   - incorrect_info — агент надав неправильну інформацію
-   - rude_tone — грубий, зневажливий або непрофесійний тон
-   - no_resolution — діалог завершився без вирішення проблеми
-   - unnecessary_escalation — непотрібне перенаправлення на іншого спеціаліста
+4. **agent_mistakes** — list of agent mistakes (can be empty []):
+   - ignored_question — agent ignored the client's specific question
+   - incorrect_info — agent provided incorrect information
+   - rude_tone — rude, dismissive, or unprofessional tone
+   - no_resolution — dialog ended without resolving the problem
+   - unnecessary_escalation — unnecessary escalation to another specialist
 
-5. **summary** — короткий опис ситуації (1-2 речення українською)
+5. **summary** — brief description of the situation (1-2 sentences in English)
 
-Відповідь — ТІЛЬКИ валідний JSON:
+Response — ONLY valid JSON:
 {{
   "intent": "...",
   "satisfaction": "...",

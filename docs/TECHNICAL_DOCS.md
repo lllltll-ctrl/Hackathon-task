@@ -2,7 +2,7 @@
 
 ## 1. Архітектура рішення
 
-Система складається з двох незалежних pipeline:
+Система складається з двох незалежних pipeline + Jupyter Notebook для аналізу:
 
 ```
 Pipeline 1: ГЕНЕРАЦІЯ
@@ -16,17 +16,27 @@ Pipeline 2: АНАЛІЗ
 │ chats.json │───>│ Формування   │───>│ OpenAI    │───>│ Валідація  │───> analysis.json
 │            │    │ промпту      │    │ API Call  │    │ (Pydantic) │
 └────────────┘    └───────────────┘    └───────────┘    └────────────┘
+
+Pipeline 3: NOTEBOOK АНАЛІЗ
+┌────────────┐    ┌────────────────┐    ┌────────────────┐
+│ chats.json │───>│ analysis_      │───>│ Графіки,       │
+│ analysis.  │    │ notebook.ipynb │    │ аномалії,      │
+│ json       │    │ (pandas,       │    │ висновки       │
+│            │    │  matplotlib)   │    │                │
+└────────────┘    └────────────────┘    └────────────────┘
 ```
 
 ### Принцип поділу відповідальності
 
 | Компонент | Відповідальність |
 |-----------|-----------------|
-| `config.py` | Всі константи, параметри моделей, seed, категорії |
-| `prompts/generation.py` | Шаблони промптів для генерації діалогів |
-| `prompts/analysis.py` | Шаблони промптів для аналізу діалогів |
-| `generate.py` | Оркестрація генерації: цикл по сценаріях, виклик API, збереження |
-| `analyze.py` | Оркестрація аналізу: читання чатів, виклик API, збереження результатів |
+| `config.py` | Всі константи, параметри моделей, seed, категорії, матриця сценаріїв |
+| `models.py` | Pydantic v2 моделі для валідації всіх даних |
+| `prompts/generation.py` | Шаблони промптів для генерації діалогів (англійською) |
+| `prompts/analysis.py` | Шаблони промптів для аналізу діалогів (англійською) |
+| `generate.py` | Оркестрація генерації: цикл по сценаріях, виклик API, checkpoint, збереження |
+| `analyze.py` | Оркестрація аналізу: читання чатів, виклик API, checkpoint, збереження результатів |
+| `analysis_notebook.ipynb` | Покроковий аналіз: графіки, розподіли, виявлення аномалій |
 
 ---
 
@@ -38,7 +48,7 @@ Pipeline 2: АНАЛІЗ
 | **Модель** | `gpt-4o-mini` | Достатня якість для генерації діалогів, низька вартість |
 | **temperature** | `0` | Детермінованість результатів |
 | **seed** | `42` | Фіксований seed для відтворюваності |
-| **max_tokens** | `2000` | Достатньо для діалогу з 8-15 реплік |
+| **max_tokens** | `2000` | Достатньо для діалогу з 6-14 реплік |
 | **response_format** | `{ "type": "json_object" }` | Гарантований JSON-вивід |
 
 ### Аналіз діалогів
@@ -60,12 +70,12 @@ Pipeline 2: АНАЛІЗ
 
 | # | Категорія | Ключ | Приклади ситуацій |
 |---|-----------|------|-------------------|
-| 1 | Проблеми з оплатою | `payment_issue` | Картка не проходить, подвійне списання, не зараховано оплату |
-| 2 | Технічні помилки | `technical_error` | Сторінка не завантажується, помилка 500, баг в інтерфейсі |
-| 3 | Доступ до акаунту | `account_access` | Забутий пароль, заблокований акаунт, двофакторна автентифікація |
-| 4 | Питання по тарифу | `tariff_question` | Різниця тарифів, зміна плану, умови підписки |
-| 5 | Повернення коштів | `refund_request` | Повернення за невикористаний період, скасування підписки |
-| 6 | Інше | `other` | Загальні питання, пропозиції, скарги на сервіс |
+| 1 | Проблеми з оплатою | `payment_issue` | Card declined, double charge, payment not credited |
+| 2 | Технічні помилки | `technical_error` | Error 500, API integration failure, UI bug |
+| 3 | Доступ до акаунту | `account_access` | Forgotten password, locked account, 2FA issues |
+| 4 | Питання по тарифу | `tariff_question` | Plan differences, plan change, feature limits |
+| 5 | Повернення коштів | `refund_request` | Refund for unused period, cancel auto-renewal |
+| 6 | Інше | `other` | Feature suggestions, general questions, complaints |
 
 ### 3.2 Типи кейсів
 
@@ -87,8 +97,8 @@ Pipeline 2: АНАЛІЗ
 
 **Приклад:**
 ```
-Клієнт: "Дякую за інформацію. Я спробую ще раз пізніше."
-(Проблема: клієнт не отримав реального рішення, просто здався)
+Client: "Alright, I'll try to figure it out myself. Thanks for your time."
+(Problem: client didn't get a real solution, just gave up)
 ```
 
 #### Помилки агента
@@ -108,82 +118,48 @@ Pipeline 2: АНАЛІЗ
 ### 4.1 Промпт генерації діалогу
 
 ```
-Системна роль:
-Ти — генератор реалістичних діалогів служби підтримки українською мовою.
+System role:
+You are a generator of realistic support dialogs for the SaaS platform
+"CloudTask" in English.
 
-Інструкція:
-Згенеруй діалог між клієнтом та саппорт-агентом для наступного сценарію:
-- Категорія: {category_description}
-- Тип кейсу: {case_type_description}
-- Прихована незадоволеність: {hidden_dissatisfaction: true/false}
-- Помилки агента: {agent_mistakes: [...]}
+User prompt:
+Generate a realistic dialog between a client and a support agent of the
+CloudTask platform.
 
-Вимоги:
-1. Діалог повинен містити 6-14 реплік (3-7 від кожної сторони)
-2. Мова — українська, розмовний стиль клієнта, професійний стиль агента
-3. Діалог повинен бути реалістичним і природним
-4. Якщо вказано приховану незадоволеність — клієнт формально ввічливий,
-   але проблема фактично не вирішена
-5. Якщо вказано помилки агента — вони мають бути природними, не надто очевидними
+Request category: {category_description}
+Case type: {case_type_description}
 
-Формат відповіді (JSON):
-{
-  "messages": [
-    {"role": "client", "text": "..."},
-    {"role": "agent", "text": "..."}
-  ]
-}
+[Conditional instructions based on case type: successful/problematic/conflict]
+[Hidden dissatisfaction instructions if applicable]
+[Agent mistake instructions if applicable]
+
+Response — ONLY valid JSON with a "messages" field.
+Each message has fields "role" (client/agent) and "text".
 ```
 
 ### 4.2 Промпт аналізу діалогу
 
 ```
-Системна роль:
-Ти — експерт з оцінки якості служби підтримки. Аналізуй діалоги детально
-і об'єктивно, звертаючи увагу на приховані сигнали незадоволеності.
+System role:
+You are an expert in evaluating SaaS platform support quality.
+CRITICALLY IMPORTANT — detecting HIDDEN dissatisfaction:
+- Client says 'okay, I'll try to figure it out myself' — gave up
+- 'Thanks for the information' — when info doesn't actually help
+- Passive aggression, sarcasm
+If problem NOT resolved — satisfaction = "unsatisfied", even if client is polite.
 
-Інструкція:
-Проаналізуй наступний діалог між клієнтом та саппорт-агентом:
-
+User prompt:
+Analyze the following dialog between a client and a support agent:
 {dialogue}
 
-Визнач:
+Determine:
+1. intent — request category (payment_issue, technical_error, etc.)
+2. satisfaction — REAL satisfaction level (satisfied/neutral/unsatisfied)
+3. quality_score — agent quality 1-5
+4. agent_mistakes — list of mistakes
+5. summary — brief description (1-2 sentences in English)
 
-1. intent — категорія звернення. Обери з:
-   payment_issue, technical_error, account_access, tariff_question,
-   refund_request, other
-
-2. satisfaction — рівень задоволеності клієнта. Обери з:
-   satisfied, neutral, unsatisfied
-   ВАЖЛИВО: Зверни увагу на ПРИХОВАНУ незадоволеність. Якщо клієнт формально
-   дякує, але проблема фактично не вирішена — це "unsatisfied".
-   Ознаки прихованої незадоволеності:
-   - Клієнт каже "добре, спробую" без реального рішення
-   - Фраза "дякую за інформацію" коли інформація не допомогла
-   - Пасивна агресія або сарказм
-   - Клієнт "здався" і припинив діалог
-
-3. quality_score — оцінка роботи агента (1-5):
-   5 = Відмінно: проблема вирішена швидко і повністю
-   4 = Добре: проблема вирішена, але з невеликими затримками
-   3 = Задовільно: проблема вирішена частково
-   2 = Погано: агент допустив помилки або не вирішив проблему
-   1 = Жахливо: грубість, повне ігнорування, неправильна інформація
-
-4. agent_mistakes — список помилок агента (може бути порожнім).
-   Можливі значення: ignored_question, incorrect_info, rude_tone,
-   no_resolution, unnecessary_escalation
-
-5. summary — короткий опис ситуації (1-2 речення)
-
-Формат відповіді (JSON):
-{
-  "intent": "...",
-  "satisfaction": "...",
-  "quality_score": N,
-  "agent_mistakes": [...],
-  "summary": "..."
-}
+Response — ONLY valid JSON.
 ```
 
 ---
@@ -237,7 +213,7 @@ class Satisfaction(str, Enum):
 
 class Message(BaseModel):
     role: Literal["client", "agent"]
-    text: str
+    text: str = Field(min_length=1)
 
 class Scenario(BaseModel):
     category: Category
@@ -261,19 +237,37 @@ class AnalysisResult(BaseModel):
 
 ---
 
-## 7. Обробка помилок
+## 7. Checkpointing
 
-| Ситуація | Стратегія |
-|----------|-----------|
-| API rate limit (429) | Exponential backoff: 1s → 2s → 4s → 8s, макс 3 спроби |
-| Невалідний JSON від API | Повторний запит (макс 2 спроби), логування помилки |
-| Pydantic validation error | Повторний запит з уточненим промптом, логування |
-| API timeout | Таймаут 60с, повтор через 5с |
-| Невідома категорія | Маппінг на `other` з попередженням |
+Для великих датасетів система зберігає прогрес кожні N чатів (за замовчуванням 10):
+
+| Параметр | Значення |
+|----------|----------|
+| `CHECKPOINT_INTERVAL` | 10 |
+| `CHECKPOINT_PATH` | `data/checkpoint.json` |
+| `CHECKPOINT_ANALYSIS_PATH` | `results/checkpoint_analysis.json` |
+
+**Логіка:**
+1. Кожні 10 успішних чатів — зберігається checkpoint
+2. При помилці — checkpoint зберігається одразу
+3. При повторному запуску — генерація/аналіз продовжується з checkpoint
+4. Після успішного завершення — checkpoint видаляється
 
 ---
 
-## 8. CLI-інтерфейс
+## 8. Обробка помилок
+
+| Ситуація | Стратегія |
+|----------|-----------|
+| API rate limit (429) | Exponential backoff: 1s → 2s → 4s, макс 3 спроби |
+| Невалідний JSON від API | Повторний запит (макс 3 спроби), логування помилки |
+| Pydantic validation error | Повторний запит, логування |
+| API timeout | Таймаут 60с, повтор через backoff |
+| API returned empty response | ValueError, повторний запит |
+
+---
+
+## 9. CLI-інтерфейс
 
 ### generate.py
 ```bash
@@ -295,3 +289,29 @@ python analyze.py [--input data/chats.json] [--output results/analysis.json]
 |----------|------|-----------------|
 | `--input` | Шлях до файлу діалогів | `data/chats.json` |
 | `--output` | Шлях до файлу результатів | `results/analysis.json` |
+
+### analysis_notebook.ipynb
+```bash
+jupyter notebook analysis_notebook.ipynb
+```
+
+Notebook автоматично завантажує `data/chats.json` та `results/analysis.json` і виконує покроковий аналіз з візуалізаціями.
+
+---
+
+## 10. Jupyter Notebook — аналіз та аномалії
+
+`analysis_notebook.ipynb` містить 8 секцій:
+
+| # | Секція | Опис |
+|---|--------|------|
+| 1 | Завантаження даних | Load chats.json + analysis.json, створення DataFrame |
+| 2 | Огляд датасету | Розподіл по категоріях, case types, довжина діалогів |
+| 3 | Розподіл оцінок | Гістограма quality_score, boxplot по case_type |
+| 4 | Аналіз задоволеності | Pie chart, stacked bar по категоріях |
+| 5 | Виявлення аномалій | Hidden dissatisfaction detection accuracy, score inconsistencies |
+| 6 | Помилки агентів | Частота помилок, кореляція з quality_score |
+| 7 | Аналіз інтентів | Розподіл інтентів, середня оцінка по інтентах |
+| 8 | Підсумки | Загальна статистика, ключові знахідки |
+
+**Бібліотеки:** pandas, matplotlib, seaborn

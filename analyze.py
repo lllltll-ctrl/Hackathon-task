@@ -1,6 +1,6 @@
-"""Аналіз діалогів та оцінка якості роботи служби підтримки CloudTask.
+"""Analyze dialogs and evaluate CloudTask support service quality.
 
-Використання:
+Usage:
     python analyze.py [--input data/chats.json] [--output results/analysis.json]
 """
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 def save_analysis_checkpoint(results: list[dict], failed_count: int) -> None:
-    """Збереження checkpoint для аналізу."""
+    """Save analysis checkpoint."""
     checkpoint_data = {
         "results": results,
         "failed_count": failed_count,
@@ -48,77 +48,77 @@ def save_analysis_checkpoint(results: list[dict], failed_count: int) -> None:
     os.makedirs(os.path.dirname(CHECKPOINT_ANALYSIS_PATH), exist_ok=True)
     with open(CHECKPOINT_ANALYSIS_PATH, "w", encoding="utf-8") as f:
         json.dump(checkpoint_data, f, ensure_ascii=False)
-    logger.info(f"Checkpoint аналізу збережено: {len(results)} результатів")
+    logger.info(f"Analysis checkpoint saved: {len(results)} results")
 
 
 def load_analysis_checkpoint() -> tuple[list[dict], int] | None:
-    """Завантаження checkpoint для продовження аналізу."""
+    """Load checkpoint to resume analysis."""
     if not os.path.exists(CHECKPOINT_ANALYSIS_PATH):
         return None
     try:
         with open(CHECKPOINT_ANALYSIS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        logger.info(f"Завантажено checkpoint аналізу: {len(data.get('results', []))} результатів")
+        logger.info(f"Analysis checkpoint loaded: {len(data.get('results', []))} results")
         return data.get("results", []), data.get("failed_count", 0)
     except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Не вдалося завантажити checkpoint: {e}")
+        logger.warning(f"Failed to load checkpoint: {e}")
         return None
 
 
 def clear_analysis_checkpoint() -> None:
-    """Видалення checkpoint файлу після успішного завершення."""
+    """Remove checkpoint file after successful completion."""
     if os.path.exists(CHECKPOINT_ANALYSIS_PATH):
         os.remove(CHECKPOINT_ANALYSIS_PATH)
-        logger.info("Checkpoint аналізу видалено")
+        logger.info("Analysis checkpoint removed")
 
 
 def load_dataset(input_path: str) -> dict[str, Any]:
-    """Завантаження датасету з JSON-файлу.
+    """Load dataset from JSON file.
 
     Args:
-        input_path: шлях до файлу з діалогами
+        input_path: path to dialogs file
 
     Returns:
-        Словник з даними датасету
+        Dictionary with dataset data
 
     Raises:
-        FileNotFoundError: якщо файл не існує
-        json.JSONDecodeError: якщо JSON некоректний
-        ValueError: якщо структура невалідна
+        FileNotFoundError: if file doesn't exist
+        json.JSONDecodeError: if JSON is malformed
+        ValueError: if structure is invalid
     """
     if not os.path.exists(input_path):
-        raise FileNotFoundError(f"Файл не знайдено: {input_path}")
+        raise FileNotFoundError(f"File not found: {input_path}")
 
     with open(input_path, "r", encoding="utf-8") as f:
         data: dict[str, Any] = json.load(f)
 
     if "chats" not in data:
-        raise ValueError("Файл не містить поле 'chats'")
+        raise ValueError("File does not contain 'chats' field")
 
     return data
 
 
 def parse_analysis_response(raw_response: str, chat_id: str) -> dict:
-    """Парсинг та валідація відповіді API з аналізом.
+    """Parse and validate API response with analysis.
 
     Args:
-        raw_response: JSON-рядок від API
-        chat_id: ID чату для прив'язки
+        raw_response: JSON string from API
+        chat_id: chat ID for binding
 
     Returns:
-        Словник з результатами аналізу
+        Dictionary with analysis results
 
     Raises:
-        ValueError: якщо відповідь невалідна
-        json.JSONDecodeError: якщо JSON некоректний
+        ValueError: if response is invalid
+        json.JSONDecodeError: if JSON is malformed
     """
     data = json.loads(raw_response)
 
-    # Перевіряємо обов'язкові поля
+    # Check required fields
     required = ["intent", "satisfaction", "quality_score", "agent_mistakes", "summary"]
     for field in required:
         if field not in data:
-            raise ValueError(f"Відповідь не містить обов'язкове поле: '{field}'")
+            raise ValueError(f"Response missing required field: '{field}'")
 
     result_data = {
         "chat_id": chat_id,
@@ -129,7 +129,7 @@ def parse_analysis_response(raw_response: str, chat_id: str) -> dict:
         "summary": data["summary"],
     }
 
-    # Валідація через Pydantic
+    # Pydantic validation
     AnalysisResult(**result_data)
 
     return result_data
@@ -140,15 +140,15 @@ def analyze_single_chat(
     chat: dict,
     max_retries: int = 3,
 ) -> dict:
-    """Аналіз одного діалогу через OpenAI API.
+    """Analyze a single dialog via OpenAI API.
 
     Args:
-        client: екземпляр OpenAI клієнта
-        chat: дані діалогу
-        max_retries: максимум спроб при помилках
+        client: OpenAI client instance
+        chat: dialog data
+        max_retries: maximum retry attempts on errors
 
     Returns:
-        Словник з результатами аналізу
+        Dictionary with analysis results
     """
     chat_id = chat["id"]
     user_prompt = build_analysis_prompt(chat["messages"])
@@ -175,19 +175,19 @@ def analyze_single_chat(
 
         except RateLimitError:
             wait = 2 ** attempt
-            logger.warning(f"Rate limit, очікування {wait}с (спроба {attempt + 1}/{max_retries})")
+            logger.warning(f"Rate limit, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
             time.sleep(wait)
         except (json.JSONDecodeError, ValueError, ValidationError) as e:
-            logger.warning(f"Помилка парсингу для {chat_id} (спроба {attempt + 1}): {e}")
+            logger.warning(f"Parse error for {chat_id} (attempt {attempt + 1}): {e}")
             if attempt == max_retries - 1:
                 raise
         except APIError as e:
-            logger.warning(f"API помилка для {chat_id} (спроба {attempt + 1}): {e}")
+            logger.warning(f"API error for {chat_id} (attempt {attempt + 1}): {e}")
             if attempt == max_retries - 1:
                 raise
             time.sleep(2 ** attempt)
 
-    raise RuntimeError(f"Не вдалося проаналізувати чат {chat_id} після {max_retries} спроб")
+    raise RuntimeError(f"Failed to analyze chat {chat_id} after {max_retries} attempts")
 
 
 def save_results(
@@ -195,12 +195,12 @@ def save_results(
     output_path: str,
     model: str = ANALYSIS_MODEL,
 ) -> None:
-    """Збереження результатів аналізу у JSON-файл.
+    """Save analysis results to JSON file.
 
     Args:
-        results: список результатів аналізу
-        output_path: шлях до вихідного файлу
-        model: назва використаної моделі
+        results: list of analysis results
+        output_path: output file path
+        model: model name used
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
@@ -216,33 +216,33 @@ def save_results(
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
-    logger.info(f"Результати збережено: {output_path} ({len(results)} аналізів)")
+    logger.info(f"Results saved: {output_path} ({len(results)} analyses)")
 
 
 def print_summary(results: list[dict]) -> None:
-    """Виведення зведеної статистики по результатах аналізу."""
+    """Print summary statistics of analysis results."""
 
     total = len(results)
     if total == 0:
-        logger.info("Немає результатів для аналізу")
+        logger.info("No results to analyze")
         return
 
-    # Статистика задоволеності
+    # Satisfaction statistics
     satisfaction_counts: dict[str, int] = {}
     for r in results:
         s = r["satisfaction"]
         satisfaction_counts[s] = satisfaction_counts.get(s, 0) + 1
 
-    # Статистика intent
+    # Intent statistics
     intent_counts: dict[str, int] = {}
     for r in results:
         i = r["intent"]
         intent_counts[i] = intent_counts.get(i, 0) + 1
 
-    # Середня якість
+    # Average quality
     avg_quality = sum(r["quality_score"] for r in results) / total
 
-    # Помилки агента
+    # Agent mistakes
     all_mistakes: list[str] = []
     for r in results:
         all_mistakes.extend(r["agent_mistakes"])
@@ -253,26 +253,26 @@ def print_summary(results: list[dict]) -> None:
     chats_with_mistakes = sum(1 for r in results if r["agent_mistakes"])
 
     print("\n" + "=" * 60)
-    print("ЗВЕДЕНА СТАТИСТИКА АНАЛІЗУ")
+    print("ANALYSIS SUMMARY")
     print("=" * 60)
 
-    print(f"\nВсього проаналізовано: {total} діалогів")
-    print(f"Середня оцінка якості: {avg_quality:.2f} / 5.00")
+    print(f"\nTotal analyzed: {total} dialogs")
+    print(f"Average quality score: {avg_quality:.2f} / 5.00")
 
-    print("\nЗадоволеність клієнтів:")
+    print("\nClient satisfaction:")
     for level in ["satisfied", "neutral", "unsatisfied"]:
         count = satisfaction_counts.get(level, 0)
         pct = count / total * 100
         bar = "█" * int(pct / 2)
         print(f"  {level:12s}: {count:3d} ({pct:5.1f}%) {bar}")
 
-    print("\nКатегорії звернень:")
+    print("\nRequest categories:")
     for intent, count in sorted(intent_counts.items(), key=lambda x: -x[1]):
         pct = count / total * 100
         print(f"  {intent:20s}: {count:3d} ({pct:5.1f}%)")
 
-    print("\nПомилки агентів:")
-    print(f"  Діалогів з помилками: {chats_with_mistakes} / {total} ({chats_with_mistakes / total * 100:.1f}%)")
+    print("\nAgent mistakes:")
+    print(f"  Dialogs with mistakes: {chats_with_mistakes} / {total} ({chats_with_mistakes / total * 100:.1f}%)")
     if mistake_counts:
         for mistake, count in sorted(mistake_counts.items(), key=lambda x: -x[1]):
             print(f"  {mistake:25s}: {count}")
@@ -282,69 +282,69 @@ def print_summary(results: list[dict]) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Аналіз діалогів служби підтримки CloudTask"
+        description="Analyze CloudTask support dialogs"
     )
     parser.add_argument(
         "--input", type=str, default=DEFAULT_OUTPUT_PATH,
-        help=f"Шлях до файлу з діалогами (за замовчуванням: {DEFAULT_OUTPUT_PATH})",
+        help=f"Path to dialogs file (default: {DEFAULT_OUTPUT_PATH})",
     )
     parser.add_argument(
         "--output", type=str, default=DEFAULT_RESULTS_PATH,
-        help=f"Шлях до файлу результатів (за замовчуванням: {DEFAULT_RESULTS_PATH})",
+        help=f"Path to results file (default: {DEFAULT_RESULTS_PATH})",
     )
     args = parser.parse_args()
 
     if not OPENAI_API_KEY:
-        logger.error("OPENAI_API_KEY не встановлено. Створіть .env файл з ключем.")
+        logger.error("OPENAI_API_KEY not set. Create a .env file with the key.")
         sys.exit(1)
 
     dataset = load_dataset(args.input)
     chats = dataset["chats"]
 
-    logger.info(f"Завантажено {len(chats)} діалогів з {args.input}")
-    logger.info(f"Початок аналізу (модель: {ANALYSIS_MODEL}, seed: {SEED})")
+    logger.info(f"Loaded {len(chats)} dialogs from {args.input}")
+    logger.info(f"Starting analysis (model: {ANALYSIS_MODEL}, seed: {SEED})")
 
     client = OpenAI(
         api_key=OPENAI_API_KEY,
         timeout=REQUEST_TIMEOUT,
     )
 
-    # Спроба завантажити checkpoint
+    # Try to load checkpoint
     checkpoint = load_analysis_checkpoint()
     if checkpoint is not None:
         results, failed = checkpoint
         analyzed_ids = {r["chat_id"] for r in results}
         chats_to_analyze = [c for c in chats if c["id"] not in analyzed_ids]
-        logger.info(f"Продовження з checkpoint: {len(results)} результатів вже є")
+        logger.info(f"Resuming from checkpoint: {len(results)} results already available")
     else:
         results = []
         failed = 0
         chats_to_analyze = chats
 
-    for chat in tqdm(chats_to_analyze, desc="Аналіз діалогів"):
+    for chat in tqdm(chats_to_analyze, desc="Analyzing dialogs"):
         try:
             result = analyze_single_chat(client, chat)
             results.append(result)
 
-            # Checkpoint кожні N результатів
+            # Checkpoint every N results
             if len(results) % CHECKPOINT_INTERVAL == 0:
                 save_analysis_checkpoint(results, failed)
 
         except Exception as e:
-            logger.error(f"Не вдалося проаналізувати {chat['id']}: {e}")
+            logger.error(f"Failed to analyze {chat['id']}: {e}")
             failed += 1
-            # Зберігаємо checkpoint при помилці
+            # Save checkpoint on error
             save_analysis_checkpoint(results, failed)
 
-    # Успішне завершення - видаляємо checkpoint
+    # Successful completion - remove checkpoint
     clear_analysis_checkpoint()
     save_results(results, args.output, model=ANALYSIS_MODEL)
     print_summary(results)
 
-    logger.info(f"Готово! Успішно: {len(results)}, помилок: {failed}")
+    logger.info(f"Done! Successful: {len(results)}, failures: {failed}")
 
     if failed > 0:
-        logger.warning(f"{failed} діалогів не було проаналізовано через помилки")
+        logger.warning(f"{failed} dialogs were not analyzed due to errors")
 
 
 if __name__ == "__main__":

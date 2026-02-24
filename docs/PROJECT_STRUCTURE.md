@@ -6,11 +6,15 @@
 ai-support-analyzer/
 ├── generate.py              # Генерація датасету діалогів
 ├── analyze.py               # Аналіз діалогів та оцінка якості
+├── analysis_notebook.ipynb  # Покроковий аналіз та виявлення аномалій (Jupyter)
 ├── config.py                # Конфігурація: моделі, параметри, константи
+├── models.py                # Pydantic-моделі для валідації даних
 ├── requirements.txt         # Python-залежності
 ├── README.md                # Інструкція запуску
 ├── .env.example             # Шаблон змінних середовища
-├── Dockerfile               # (опціонально) контейнеризація
+├── Dockerfile               # Контейнеризація
+├── docker-compose.yml       # Docker Compose для зручного запуску
+├── pyproject.toml           # Конфігурація ruff, mypy, pytest
 ├── docs/
 │   ├── PROJECT_STRUCTURE.md # Цей документ
 │   ├── TECHNICAL_DOCS.md    # Технічна документація
@@ -19,6 +23,14 @@ ai-support-analyzer/
 │   └── chats.json           # Згенерований датасет діалогів
 ├── results/
 │   └── analysis.json        # Результати аналізу
+├── tests/
+│   ├── conftest.py          # Фікстури для тестів
+│   ├── test_models.py       # Тести Pydantic-моделей
+│   ├── test_config.py       # Тести конфігурації
+│   ├── test_prompts.py      # Тести промптів
+│   ├── test_generate.py     # Тести генерації
+│   ├── test_analyze.py      # Тести аналізу
+│   └── test_integration.py  # Інтеграційні тести
 └── prompts/
     ├── generation.py        # Промпти для генерації діалогів
     └── analysis.py          # Промпти для аналізу діалогів
@@ -30,13 +42,16 @@ ai-support-analyzer/
 
 | Файл | Призначення |
 |------|-------------|
-| `generate.py` | Головний скрипт генерації. Створює 100+ діалогів клієнт-агент, покриваючи всі сценарії та типи кейсів. Зберігає результат у `data/chats.json` |
+| `generate.py` | Головний скрипт генерації. Створює 120 діалогів англійською мовою клієнт-агент, покриваючи всі сценарії та типи кейсів. Зберігає результат у `data/chats.json` |
 | `analyze.py` | Головний скрипт аналізу. Читає діалоги з `data/chats.json`, оцінює кожен через LLM, зберігає результати в `results/analysis.json` |
-| `config.py` | Централізована конфігурація: назви моделей, temperature, seed, кількість діалогів, категорії, типи кейсів |
+| `analysis_notebook.ipynb` | Jupyter Notebook з покроковим аналізом датасету: графіки розподілів, виявлення аномалій, патерни помилок агентів |
+| `config.py` | Централізована конфігурація: назви моделей, temperature, seed, кількість діалогів, категорії, типи кейсів, матриця сценаріїв |
+| `models.py` | Pydantic v2 моделі для валідації даних: Category, CaseType, AgentMistake, Satisfaction, Message, Scenario, Chat, AnalysisResult |
 | `prompts/generation.py` | Шаблони промптів для генерації діалогів різних типів та категорій |
 | `prompts/analysis.py` | Шаблони промптів для аналізу діалогів (визначення intent, satisfaction, quality, mistakes) |
-| `requirements.txt` | Залежності: `openai`, `pydantic`, `python-dotenv`, `tqdm` |
-| `.env.example` | Шаблон: `OPENAI_API_KEY=your-key-here` |
+| `requirements.txt` | Залежності: `openai`, `pydantic`, `python-dotenv`, `tqdm`, `pandas`, `matplotlib`, `seaborn`, `jupyter`, `pytest`, `ruff`, `mypy` |
+| `.env.example` | Шаблон: `OPENAI_API_KEY=your-api-key-here` |
+| `tests/` | 130 тестів (pytest): моделі, конфігурація, промпти, генерація, аналіз, інтеграційні |
 
 ---
 
@@ -54,7 +69,15 @@ ai-support-analyzer/
 │ prompts/    │────>│ analyze.py   │────>│ results/     │
 │ analysis    │     │              │     │ analysis.json│
 │             │     │ OpenAI API   │     │              │
-└─────────────┘     └──────────────┘     └──────────────┘
+└─────────────┘     └──────────────┘     └──────┬───────┘
+                                                │
+                                                v
+                                         ┌──────────────┐
+                                         │ analysis_    │
+                                         │ notebook.ipynb│
+                                         │ (графіки,    │
+                                         │  аномалії)   │
+                                         └──────────────┘
 ```
 
 ---
@@ -66,7 +89,7 @@ ai-support-analyzer/
 ```json
 {
   "metadata": {
-    "generated_at": "2026-02-23T12:00:00Z",
+    "generated_at": "2026-02-24T12:00:00Z",
     "model": "gpt-4o-mini",
     "total_chats": 120,
     "seed": 42
@@ -83,11 +106,11 @@ ai-support-analyzer/
       "messages": [
         {
           "role": "client",
-          "text": "Доброго дня! У мене не проходить оплата картою..."
+          "text": "Hi! I'm trying to subscribe to the Pro plan but my card keeps getting declined..."
         },
         {
           "role": "agent",
-          "text": "Вітаю! Давайте розберемось з цією ситуацією..."
+          "text": "Hello! Let me help you with that. Could you confirm that your card is active and has sufficient funds?"
         }
       ]
     }
@@ -120,7 +143,7 @@ ai-support-analyzer/
 ```json
 {
   "metadata": {
-    "analyzed_at": "2026-02-23T12:30:00Z",
+    "analyzed_at": "2026-02-24T12:30:00Z",
     "model": "gpt-4o",
     "total_analyzed": 120
   },
@@ -131,15 +154,7 @@ ai-support-analyzer/
       "satisfaction": "satisfied",
       "quality_score": 5,
       "agent_mistakes": [],
-      "summary": "Клієнт звернувся з проблемою оплати. Агент оперативно допоміг вирішити питання."
-    },
-    {
-      "chat_id": "chat_015",
-      "intent": "refund_request",
-      "satisfaction": "unsatisfied",
-      "quality_score": 2,
-      "agent_mistakes": ["ignored_question", "no_resolution"],
-      "summary": "Клієнт просив повернення коштів. Агент проігнорував ключове питання і не запропонував рішення."
+      "summary": "Client had a payment issue with card being declined. Agent quickly identified the problem and helped resolve it."
     }
   ]
 }
@@ -150,9 +165,9 @@ ai-support-analyzer/
 |------|-----|----------|
 | `intent` | string | `payment_issue` \| `technical_error` \| `account_access` \| `tariff_question` \| `refund_request` \| `other` |
 | `satisfaction` | string | `satisfied` \| `neutral` \| `unsatisfied` |
-| `quality_score` | integer | 1–5 (1 = жахливо, 5 = відмінно) |
+| `quality_score` | integer | 1–5 (1 = terrible, 5 = excellent) |
 | `agent_mistakes` | array | Список з: `ignored_question`, `incorrect_info`, `rude_tone`, `no_resolution`, `unnecessary_escalation` |
-| `summary` | string | Короткий опис ситуації та висновок |
+| `summary` | string | Короткий опис ситуації (англійською) |
 
 ---
 

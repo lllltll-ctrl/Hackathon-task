@@ -1,23 +1,23 @@
-"""Промпти для генерації діалогів клієнт-агент."""
+"""Prompts for generating client-agent support dialogs."""
 
 from config import CASE_TYPE_DESCRIPTIONS, CATEGORY_DESCRIPTIONS, MISTAKE_DESCRIPTIONS
 
-SYSTEM_PROMPT = """Ти — генератор реалістичних діалогів служби підтримки SaaS-платформи "CloudTask" українською мовою.
+SYSTEM_PROMPT = """You are a generator of realistic support dialogs for the SaaS platform "CloudTask" in English.
 
-CloudTask — це хмарна платформа для управління проєктами та командною роботою.
-Тарифні плани: Free (безкоштовний, до 5 користувачів), Pro ($15/міс за користувача), Enterprise (індивідуальна ціна).
-Функції: дашборди, канбан-дошки, тайм-трекінг, API-інтеграції, звіти, командний чат.
+CloudTask is a cloud-based project management and team collaboration platform.
+Pricing plans: Free (up to 5 users), Pro ($15/month per user), Enterprise (custom pricing).
+Features: dashboards, kanban boards, time tracking, API integrations, reports, team chat.
 
-Правила генерації діалогів:
-1. Мова — українська, природна розмовна для клієнта, професійна для агента
-2. Клієнт може використовувати розмовний стиль, скорочення, емоційні вирази
-3. Агент відповідає ввічливо, структуровано, з конкретними кроками
-4. Діалог повинен містити від 6 до 14 реплік (3-7 від кожної сторони)
-5. Перша репліка завжди від клієнта
-6. Остання репліка завжди від агента
-7. Кожна репліка має бути змістовною (не просто "ок" або "дякую")
+Dialog generation rules:
+1. Language — English, natural conversational style for the client, professional for the agent
+2. The client may use casual style, abbreviations, emotional expressions
+3. The agent responds politely, in a structured manner, with specific action steps
+4. The dialog must contain 6 to 14 messages (3-7 from each side)
+5. The first message is always from the client
+6. The last message is always from the agent
+7. Each message must be meaningful (not just "ok" or "thanks")
 
-Формат відповіді — ТІЛЬКИ валідний JSON:
+Response format — ONLY valid JSON:
 {
   "messages": [
     {"role": "client", "text": "..."},
@@ -32,63 +32,63 @@ def build_generation_prompt(
     has_hidden_dissatisfaction: bool,
     agent_mistakes: list[str],
 ) -> str:
-    """Формує промпт для генерації одного діалогу."""
+    """Build a prompt for generating a single dialog."""
 
     category_desc = CATEGORY_DESCRIPTIONS.get(category, category)
     case_type_desc = CASE_TYPE_DESCRIPTIONS.get(case_type, case_type)
 
     prompt_parts = [
-        "Згенеруй реалістичний діалог між клієнтом та саппорт-агентом платформи CloudTask.",
+        "Generate a realistic dialog between a client and a support agent of the CloudTask platform.",
         "",
-        f"Категорія звернення: {category_desc}",
-        f"Тип кейсу: {case_type_desc}",
+        f"Request category: {category_desc}",
+        f"Case type: {case_type_desc}",
     ]
 
-    # Додаткові інструкції залежно від типу кейсу
+    # Additional instructions depending on case type
     if case_type == "successful" and not has_hidden_dissatisfaction:
         prompt_parts.append("")
         prompt_parts.append(
-            "ВАЖЛИВО — Це УСПІШНИЙ кейс. Агент ПОВИНЕН реально вирішити проблему клієнта: "
-            "знайти конкретну причину, виконати дію (скинути пароль, повернути кошти, "
-            "змінити тариф, виправити помилку) і підтвердити що проблема вирішена. "
-            "Клієнт має бути ДІЙСНО задоволений результатом, а не просто отримати загальну пораду."
+            "IMPORTANT — This is a SUCCESSFUL case. The agent MUST actually solve the client's problem: "
+            "find the specific cause, take action (reset password, issue refund, "
+            "change plan, fix the bug) and confirm the problem is resolved. "
+            "The client must be GENUINELY satisfied with the result, not just receive generic advice."
         )
     elif case_type == "problematic" and not has_hidden_dissatisfaction:
         prompt_parts.append("")
         prompt_parts.append(
-            "Це проблемний кейс: агент намагається допомогти, але рішення не ідеальне — "
-            "потрібні додаткові кроки, очікування, або компроміс. Проблема вирішена ЧАСТКОВО."
+            "This is a problematic case: the agent tries to help but the solution is not ideal — "
+            "additional steps, waiting, or a compromise is needed. The problem is PARTIALLY resolved."
         )
     elif case_type == "conflict" and not has_hidden_dissatisfaction:
         prompt_parts.append("")
         prompt_parts.append(
-            "Це конфліктний кейс: клієнт емоційний, розчарований, може підвищувати тон. "
-            "Агент під тиском, ситуація напружена. Клієнт відкрито незадоволений."
+            "This is a conflict case: the client is emotional, frustrated, may raise their tone. "
+            "The agent is under pressure, the situation is tense. The client is openly dissatisfied."
         )
 
     if has_hidden_dissatisfaction:
         prompt_parts.append("")
         prompt_parts.append(
-            "ВАЖЛИВО — Прихована незадоволеність: клієнт повинен бути формально ввічливим "
-            "(дякувати, казати «добре», «зрозумів»), але проблема фактично НЕ вирішена. "
-            "Клієнт може:\n"
-            "- Сказати «Добре, спробую розібратись сам» (здався)\n"
-            "- Подякувати за інформацію, яка насправді не допомогла\n"
-            "- Погодитись з відповіддю з легким сарказмом або розчаруванням\n"
-            "- Припинити діалог, не отримавши реального рішення"
+            "IMPORTANT — Hidden dissatisfaction: the client must be formally polite "
+            "(saying 'thank you', 'okay', 'I understand'), but the problem is NOT actually resolved. "
+            "The client may:\n"
+            "- Say 'Alright, I'll try to figure it out myself' (gave up)\n"
+            "- Thank for information that didn't actually help\n"
+            "- Agree with the response with slight sarcasm or disappointment\n"
+            "- End the dialog without receiving a real solution"
         )
 
     if agent_mistakes:
         prompt_parts.append("")
-        prompt_parts.append("Агент повинен допустити наступні помилки (природно, не надто очевидно):")
+        prompt_parts.append("The agent must make the following mistakes (naturally, not too obviously):")
         for mistake in agent_mistakes:
             desc = MISTAKE_DESCRIPTIONS.get(mistake, mistake)
             prompt_parts.append(f"- {desc}")
 
     prompt_parts.append("")
     prompt_parts.append(
-        "Відповідь — ТІЛЬКИ валідний JSON з полем \"messages\". "
-        "Кожне повідомлення має поля \"role\" (client/agent) та \"text\"."
+        "Response — ONLY valid JSON with a \"messages\" field. "
+        "Each message has fields \"role\" (client/agent) and \"text\"."
     )
 
     return "\n".join(prompt_parts)

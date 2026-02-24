@@ -1,4 +1,4 @@
-"""Конфігурація проекту: моделі, параметри, матриця сценаріїв."""
+"""Project configuration: models, parameters, scenario matrix."""
 
 import os
 
@@ -10,31 +10,31 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-# Модель для генерації діалогів (дешевша, достатня для тексту)
+# Model for dialog generation (cheaper, sufficient for text)
 GENERATION_MODEL = "gpt-4o-mini"
 
-# Модель для аналізу діалогів (потужніша, краще розуміє нюанси)
+# Model for dialog analysis (more powerful, better understanding of nuances)
 ANALYSIS_MODEL = "gpt-4o"
 
-# Параметри для детермінованості
+# Parameters for determinism
 TEMPERATURE = 0
 SEED = 42
 
-# Timeout для API запитів (секунди)
+# Timeout for API requests (seconds)
 REQUEST_TIMEOUT = 60.0
 
-# Checkpointing: зберігати прогрес кожні N чатів
+# Checkpointing: save progress every N chats
 CHECKPOINT_INTERVAL = 10
 CHECKPOINT_PATH = "data/checkpoint.json"
 CHECKPOINT_ANALYSIS_PATH = "results/checkpoint_analysis.json"
 
-# ── Датасет ──────────────────────────────────────────────────────────
+# ── Dataset ──────────────────────────────────────────────────────────
 
 DEFAULT_CHAT_COUNT = 120
 DEFAULT_OUTPUT_PATH = "data/chats.json"
 DEFAULT_RESULTS_PATH = "results/analysis.json"
 
-# ── Категорії та типи ────────────────────────────────────────────────
+# ── Categories and types ─────────────────────────────────────────────
 
 CATEGORIES = [
     "payment_issue",
@@ -60,49 +60,49 @@ AGENT_MISTAKES = [
     "unnecessary_escalation",
 ]
 
-# Опис категорій українською (для промптів)
+# Category descriptions (for prompts)
 CATEGORY_DESCRIPTIONS = {
-    "payment_issue": "Проблеми з оплатою (картка не проходить, подвійне списання, не зараховано оплату за підписку CloudTask)",
-    "technical_error": "Технічні помилки (помилка 500, не працює API-інтеграція, баг в інтерфейсі, не завантажується дашборд)",
-    "account_access": "Доступ до акаунту (забутий пароль, заблокований акаунт, проблеми з SSO/двофакторною автентифікацією)",
-    "tariff_question": "Питання по тарифу (різниця між Free/Pro/Enterprise, зміна плану, ліміти функцій, умови підписки CloudTask)",
-    "refund_request": "Повернення коштів (повернення за невикористаний період підписки, скасування автопродовження, помилкове списання)",
-    "other": "Інші звернення (пропозиції по покращенню, загальні питання про функціонал CloudTask, скарги на сервіс)",
+    "payment_issue": "Payment issues (card not going through, double charge, subscription payment not credited for CloudTask)",
+    "technical_error": "Technical errors (error 500, API integration not working, UI bug, dashboard not loading)",
+    "account_access": "Account access (forgotten password, locked account, SSO/2FA authentication issues)",
+    "tariff_question": "Plan/pricing questions (difference between Free/Pro/Enterprise, plan change, feature limits, CloudTask subscription terms)",
+    "refund_request": "Refund requests (refund for unused subscription period, auto-renewal cancellation, accidental charge)",
+    "other": "Other inquiries (improvement suggestions, general questions about CloudTask features, service complaints)",
 }
 
-# Опис типів кейсів (для промптів)
+# Case type descriptions (for prompts)
 CASE_TYPE_DESCRIPTIONS = {
-    "successful": "Успішний кейс: агент швидко розуміє проблему, надає чітке рішення, клієнт задоволений результатом",
-    "problematic": "Проблемний кейс: агент потребує кількох уточнень, рішення не ідеальне, клієнт нейтральний або частково задоволений",
-    "conflict": "Конфліктний кейс: клієнт емоційний та незадоволений, вимагає ескалацію або компенсацію, агент під тиском",
-    "agent_error": "Кейс з помилкою агента: агент допускає конкретні помилки (неправильна інформація, грубий тон, ігнорування питання тощо)",
+    "successful": "Successful case: agent quickly understands the problem, provides a clear solution, client is satisfied with the result",
+    "problematic": "Problematic case: agent needs several clarifications, solution is not ideal, client is neutral or partially satisfied",
+    "conflict": "Conflict case: client is emotional and dissatisfied, demands escalation or compensation, agent is under pressure",
+    "agent_error": "Agent error case: agent makes specific mistakes (incorrect information, rude tone, ignoring questions, etc.)",
 }
 
-# Опис помилок агента (для промптів)
+# Agent mistake descriptions (for prompts)
 MISTAKE_DESCRIPTIONS = {
-    "ignored_question": "Ігнорування питання — агент не відповідає на конкретне запитання клієнта, переходить до іншої теми",
-    "incorrect_info": "Неправильна інформація — агент надає хибну інформацію про тарифи, функції або процедури CloudTask",
-    "rude_tone": "Грубий тон — агент відповідає зневажливо, нетерпляче або непрофесійно",
-    "no_resolution": "Відсутність рішення — діалог закінчується без реального вирішення проблеми клієнта",
-    "unnecessary_escalation": "Непотрібна ескалація — агент перенаправляє на іншого спеціаліста без спроби вирішити самостійно",
+    "ignored_question": "Ignoring question — agent doesn't answer the client's specific question, changes the topic",
+    "incorrect_info": "Incorrect information — agent provides false information about CloudTask plans, features, or procedures",
+    "rude_tone": "Rude tone — agent responds dismissively, impatiently, or unprofessionally",
+    "no_resolution": "No resolution — dialog ends without actually resolving the client's problem",
+    "unnecessary_escalation": "Unnecessary escalation — agent redirects to another specialist without attempting to solve it themselves",
 }
 
 
 def _build_scenario_matrix() -> list[dict]:
-    """Побудова повної матриці сценаріїв для генерації 120 діалогів.
+    """Build the full scenario matrix for generating 120 dialogs.
 
-    Розподіл:
-    - 60 основних: 5 категорій × 4 типи × 3 варіації
-    - 20 з прихованою незадоволеністю
-    - 20 з помилками агента (додаткові)
-    - 20 змішаних / edge cases
+    Distribution:
+    - 60 main: 5 categories × 4 types × 3 variations
+    - 20 with hidden dissatisfaction
+    - 20 with agent mistakes (additional)
+    - 20 mixed / edge cases
     """
     scenarios = []
 
-    # Основні категорії (без "other")
+    # Main categories (without "other")
     main_categories = [c for c in CATEGORIES if c != "other"]
 
-    # ── Блок 1: Основна матриця (5 категорій × 4 типи × 3 варіації = 60) ──
+    # ── Block 1: Main matrix (5 categories × 4 types × 3 variations = 60) ──
     for category in main_categories:
         for case_type in CASE_TYPES:
             for variation in range(3):
@@ -112,15 +112,15 @@ def _build_scenario_matrix() -> list[dict]:
                     "has_hidden_dissatisfaction": False,
                     "intended_agent_mistakes": [],
                 }
-                # Для agent_error додаємо конкретні помилки
+                # For agent_error add specific mistakes
                 if case_type == "agent_error":
                     mistake_idx = variation % len(AGENT_MISTAKES)
                     scenario["intended_agent_mistakes"] = [AGENT_MISTAKES[mistake_idx]]
                 scenarios.append(scenario)
 
-    # ── Блок 2: Прихована незадоволеність (20 кейсів) ──
+    # ── Block 2: Hidden dissatisfaction (20 cases) ──
     hidden_configs = [
-        # Клієнт формально дякує, але проблема не вирішена
+        # Client formally thanks, but problem not resolved
         ("payment_issue", "problematic", ["no_resolution"]),
         ("payment_issue", "successful", []),
         ("technical_error", "problematic", ["no_resolution"]),
@@ -131,13 +131,13 @@ def _build_scenario_matrix() -> list[dict]:
         ("tariff_question", "successful", []),
         ("refund_request", "problematic", ["no_resolution"]),
         ("refund_request", "successful", []),
-        # Агент дає шаблонну відповідь
+        # Agent gives template response
         ("payment_issue", "agent_error", ["no_resolution"]),
         ("technical_error", "agent_error", ["ignored_question"]),
         ("account_access", "agent_error", ["unnecessary_escalation"]),
         ("tariff_question", "agent_error", ["incorrect_info"]),
         ("refund_request", "agent_error", ["no_resolution"]),
-        # Клієнт сам "здається"
+        # Client "gives up"
         ("payment_issue", "conflict", []),
         ("technical_error", "conflict", []),
         ("account_access", "conflict", []),
@@ -152,7 +152,7 @@ def _build_scenario_matrix() -> list[dict]:
             "intended_agent_mistakes": mistakes,
         })
 
-    # ── Блок 3: Додаткові помилки агента (20 кейсів) ──
+    # ── Block 3: Additional agent mistakes (20 cases) ──
     mistake_combos = [
         ["ignored_question", "no_resolution"],
         ["incorrect_info", "rude_tone"],
@@ -169,7 +169,7 @@ def _build_scenario_matrix() -> list[dict]:
                 "intended_agent_mistakes": combo,
             })
 
-    # ── Блок 4: Edge cases з категорією "other" (20 кейсів) ──
+    # ── Block 4: Edge cases with "other" category (20 cases) ──
     for case_type in CASE_TYPES:
         for variation in range(5):
             scenario = {
@@ -186,5 +186,5 @@ def _build_scenario_matrix() -> list[dict]:
     return scenarios
 
 
-# Повна матриця сценаріїв (детерміновано побудована)
+# Full scenario matrix (deterministically built)
 SCENARIO_MATRIX = _build_scenario_matrix()

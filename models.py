@@ -1,4 +1,4 @@
-"""Pydantic-моделі для валідації даних діалогів та результатів аналізу."""
+"""Pydantic models for dialog data and analysis results validation."""
 
 from enum import Enum
 from typing import Literal
@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class Category(str, Enum):
-    """Категорії звернень клієнтів."""
+    """Client request categories."""
     PAYMENT_ISSUE = "payment_issue"
     TECHNICAL_ERROR = "technical_error"
     ACCOUNT_ACCESS = "account_access"
@@ -17,7 +17,7 @@ class Category(str, Enum):
 
 
 class CaseType(str, Enum):
-    """Типи кейсів діалогів."""
+    """Dialog case types."""
     SUCCESSFUL = "successful"
     PROBLEMATIC = "problematic"
     CONFLICT = "conflict"
@@ -25,7 +25,7 @@ class CaseType(str, Enum):
 
 
 class AgentMistake(str, Enum):
-    """Можливі помилки саппорт-агента."""
+    """Possible support agent mistakes."""
     IGNORED_QUESTION = "ignored_question"
     INCORRECT_INFO = "incorrect_info"
     RUDE_TONE = "rude_tone"
@@ -34,20 +34,20 @@ class AgentMistake(str, Enum):
 
 
 class Satisfaction(str, Enum):
-    """Рівень задоволеності клієнта."""
+    """Client satisfaction level."""
     SATISFIED = "satisfied"
     NEUTRAL = "neutral"
     UNSATISFIED = "unsatisfied"
 
 
 class Message(BaseModel):
-    """Одне повідомлення в діалозі."""
+    """A single message in a dialog."""
     role: Literal["client", "agent"]
     text: str = Field(min_length=1)
 
 
 class Scenario(BaseModel):
-    """Сценарій для генерації діалогу."""
+    """Scenario for dialog generation."""
     category: Category
     case_type: CaseType
     has_hidden_dissatisfaction: bool = False
@@ -55,14 +55,14 @@ class Scenario(BaseModel):
 
 
 class Chat(BaseModel):
-    """Один діалог між клієнтом та саппорт-агентом."""
+    """A single dialog between client and support agent."""
     id: str
     scenario: Scenario
     messages: list[Message] = Field(min_length=4, max_length=20)
 
 
 class AnalysisResult(BaseModel):
-    """Результат аналізу одного діалогу."""
+    """Analysis result for a single dialog."""
     chat_id: str
     intent: Category
     satisfaction: Satisfaction
