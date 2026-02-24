@@ -6,6 +6,4 @@ results/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-output.txt
-AI_TestTask.pdf
-.claude/
+
