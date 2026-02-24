@@ -8,3 +8,4 @@ results/
 .ruff_cache/
 output.txt
 AI_TestTask.pdf
+.claude/
