@@ -1,18 +1,20 @@
 """Generate client-agent dialog dataset for CloudTask support service.
 
 Usage:
-    python generate.py [--count 120] [--output data/chats.json] [--seed 42]
+    python generate.py [--count 120] [--output data/chats.json] [--seed 42] [--concurrency 5]
 """
 
 import argparse
+import asyncio
 import json
 import logging
 import os
 import sys
 import time
 from datetime import datetime, timezone
+from typing import Any
 
-from openai import APIError, OpenAI, RateLimitError
+from openai import APIError, AsyncOpenAI, OpenAI, RateLimitError
 from tqdm import tqdm
 
 from config import (
@@ -36,9 +38,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def save_checkpoint(chats: list[dict], failed_count: int) -> None:
+def save_checkpoint(chats: list[dict[str, Any]], failed_count: int) -> None:
     """Save checkpoint for recovery on failure."""
-    checkpoint_data = {
+    checkpoint_data: dict[str, Any] = {
         "chats": chats,
         "failed_count": failed_count,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -49,13 +51,13 @@ def save_checkpoint(chats: list[dict], failed_count: int) -> None:
     logger.info(f"Checkpoint saved: {len(chats)} chats, {failed_count} failures")
 
 
-def load_checkpoint() -> tuple[list[dict], int] | None:
+def load_checkpoint() -> tuple[list[dict[str, Any]], int] | None:
     """Load checkpoint to resume generation."""
     if not os.path.exists(CHECKPOINT_PATH):
         return None
     try:
         with open(CHECKPOINT_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            data: dict[str, Any] = json.load(f)
         logger.info(f"Checkpoint loaded: {len(data.get('chats', []))} chats")
         return data.get("chats", []), data.get("failed_count", 0)
     except (json.JSONDecodeError, OSError) as e:
@@ -70,20 +72,20 @@ def clear_checkpoint() -> None:
         logger.info("Checkpoint removed")
 
 
-def build_scenario_list(count: int = DEFAULT_CHAT_COUNT) -> list[dict]:
+def build_scenario_list(count: int = DEFAULT_CHAT_COUNT) -> list[dict[str, Any]]:
     """Build a scenario list of required length from the matrix.
 
     Takes scenarios from SCENARIO_MATRIX cyclically to ensure coverage
     of all category and case type combinations.
     """
-    scenarios = []
+    scenarios: list[dict[str, Any]] = []
     matrix = SCENARIO_MATRIX
     for i in range(count):
         scenarios.append(matrix[i % len(matrix)])
     return scenarios
 
 
-def parse_chat_response(raw_response: str) -> list[dict]:
+def parse_chat_response(raw_response: str) -> list[dict[str, str]]:
     """Parse and validate API response with dialog.
 
     Args:
@@ -96,7 +98,7 @@ def parse_chat_response(raw_response: str) -> list[dict]:
         ValueError: if response is invalid
         json.JSONDecodeError: if JSON is malformed
     """
-    data = json.loads(raw_response)
+    data: dict[str, Any] = json.loads(raw_response)
 
     if "messages" not in data:
         raise ValueError("API response does not contain 'messages' field")
@@ -116,11 +118,11 @@ def parse_chat_response(raw_response: str) -> list[dict]:
 
 def generate_single_chat(
     client: OpenAI,
-    scenario: dict,
+    scenario: dict[str, Any],
     chat_id: str,
     max_retries: int = 3,
-) -> dict:
-    """Generate a single dialog via OpenAI API.
+) -> dict[str, Any]:
+    """Generate a single dialog via OpenAI API (synchronous).
 
     Args:
         client: OpenAI client instance
@@ -180,8 +182,77 @@ def generate_single_chat(
     raise RuntimeError(f"Failed to generate chat {chat_id} after {max_retries} attempts")
 
 
+async def async_generate_single_chat(
+    client: AsyncOpenAI,
+    scenario: dict[str, Any],
+    chat_id: str,
+    semaphore: asyncio.Semaphore,
+    max_retries: int = 3,
+) -> dict[str, Any]:
+    """Generate a single dialog via OpenAI API (asynchronous).
+
+    Args:
+        client: AsyncOpenAI client instance
+        scenario: generation scenario
+        chat_id: unique chat ID
+        semaphore: semaphore for concurrency control
+        max_retries: maximum retry attempts on errors
+
+    Returns:
+        Dictionary with chat data (id, scenario, messages)
+    """
+    user_prompt = build_generation_prompt(
+        category=scenario["category"],
+        case_type=scenario["case_type"],
+        has_hidden_dissatisfaction=scenario.get("has_hidden_dissatisfaction", False),
+        agent_mistakes=scenario.get("intended_agent_mistakes", []),
+    )
+
+    for attempt in range(max_retries):
+        try:
+            async with semaphore:
+                response = await client.chat.completions.create(
+                    model=GENERATION_MODEL,
+                    temperature=TEMPERATURE,
+                    seed=SEED,
+                    max_tokens=2000,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+
+            raw = response.choices[0].message.content
+            if raw is None:
+                raise ValueError("API returned empty response")
+            messages = parse_chat_response(raw)
+
+            return {
+                "id": chat_id,
+                "scenario": scenario,
+                "messages": messages,
+            }
+
+        except RateLimitError:
+            wait = 2 ** attempt
+            logger.warning(f"Rate limit for {chat_id}, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
+            await asyncio.sleep(wait)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Parse error for {chat_id} (attempt {attempt + 1}): {e}")
+            if attempt == max_retries - 1:
+                raise
+        except APIError as e:
+            logger.warning(f"API error for {chat_id} (attempt {attempt + 1}): {e}")
+            if attempt == max_retries - 1:
+                raise
+            await asyncio.sleep(2 ** attempt)
+
+    raise RuntimeError(f"Failed to generate chat {chat_id} after {max_retries} attempts")
+
+
 def save_dataset(
-    chats: list[dict],
+    chats: list[dict[str, Any]],
     output_path: str,
     model: str = GENERATION_MODEL,
     seed: int = SEED,
@@ -196,7 +267,7 @@ def save_dataset(
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    dataset = {
+    dataset: dict[str, Any] = {
         "metadata": {
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "model": model,
@@ -212,28 +283,73 @@ def save_dataset(
     logger.info(f"Dataset saved: {output_path} ({len(chats)} dialogs)")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Generate CloudTask support dialog dataset"
+async def _async_main(args: argparse.Namespace) -> None:
+    """Async entry point for concurrent generation."""
+    client = AsyncOpenAI(
+        api_key=OPENAI_API_KEY,
+        timeout=REQUEST_TIMEOUT,
     )
-    parser.add_argument(
-        "--count", type=int, default=DEFAULT_CHAT_COUNT,
-        help=f"Number of dialogs (default: {DEFAULT_CHAT_COUNT})",
-    )
-    parser.add_argument(
-        "--output", type=str, default=DEFAULT_OUTPUT_PATH,
-        help=f"Output file path (default: {DEFAULT_OUTPUT_PATH})",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=SEED,
-        help=f"Seed for determinism (default: {SEED})",
-    )
-    args = parser.parse_args()
+    scenarios = build_scenario_list(count=args.count)
+    semaphore = asyncio.Semaphore(args.concurrency)
 
-    if not OPENAI_API_KEY:
-        logger.error("OPENAI_API_KEY not set. Create a .env file with the key.")
-        sys.exit(1)
+    logger.info(
+        f"Starting async generation of {args.count} dialogs "
+        f"(model: {GENERATION_MODEL}, seed: {args.seed}, concurrency: {args.concurrency})"
+    )
 
+    # Try to load checkpoint
+    chats: list[dict[str, Any]]
+    checkpoint = load_checkpoint()
+    if checkpoint is not None:
+        chats, failed = checkpoint
+        start_index = len(chats)
+        logger.info(f"Resuming from checkpoint: {start_index} chats already generated")
+    else:
+        chats = []
+        failed = 0
+        start_index = 0
+
+    remaining_scenarios = scenarios[start_index:]
+    pbar = tqdm(total=len(remaining_scenarios), desc="Generating dialogs", initial=0)
+
+    # Process in batches for checkpoint support
+    batch_size = args.concurrency * 2
+    for batch_start in range(0, len(remaining_scenarios), batch_size):
+        batch = remaining_scenarios[batch_start:batch_start + batch_size]
+        gather_tasks: list[Any] = []
+        for i, scenario in enumerate(batch):
+            idx = start_index + batch_start + i
+            chat_id = f"chat_{idx + 1:03d}"
+            gather_tasks.append(async_generate_single_chat(client, scenario, chat_id, semaphore))
+
+        gather_results = await asyncio.gather(*gather_tasks, return_exceptions=True)
+
+        for gather_result in gather_results:
+            if isinstance(gather_result, BaseException):
+                logger.error(f"Failed to generate chat: {gather_result}")
+                failed += 1
+            else:
+                chats.append(gather_result)
+            pbar.update(1)
+
+        # Checkpoint after each batch
+        if len(chats) % CHECKPOINT_INTERVAL < batch_size:
+            save_checkpoint(chats, failed)
+
+    pbar.close()
+
+    # Successful completion - remove checkpoint
+    clear_checkpoint()
+    save_dataset(chats, args.output, model=GENERATION_MODEL, seed=args.seed)
+
+    logger.info(f"Done! Successful: {len(chats)}, failures: {failed}")
+
+    if failed > 0:
+        logger.warning(f"{failed} dialogs were not generated due to errors")
+
+
+def _sync_main(args: argparse.Namespace) -> None:
+    """Synchronous entry point for sequential generation."""
     client = OpenAI(
         api_key=OPENAI_API_KEY,
         timeout=REQUEST_TIMEOUT,
@@ -243,6 +359,7 @@ def main():
     logger.info(f"Starting generation of {args.count} dialogs (model: {GENERATION_MODEL}, seed: {args.seed})")
 
     # Try to load checkpoint
+    chats: list[dict[str, Any]]
     checkpoint = load_checkpoint()
     if checkpoint is not None:
         chats, failed = checkpoint
@@ -277,6 +394,38 @@ def main():
 
     if failed > 0:
         logger.warning(f"{failed} dialogs were not generated due to errors")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate CloudTask support dialog dataset"
+    )
+    parser.add_argument(
+        "--count", type=int, default=DEFAULT_CHAT_COUNT,
+        help=f"Number of dialogs (default: {DEFAULT_CHAT_COUNT})",
+    )
+    parser.add_argument(
+        "--output", type=str, default=DEFAULT_OUTPUT_PATH,
+        help=f"Output file path (default: {DEFAULT_OUTPUT_PATH})",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=SEED,
+        help=f"Seed for determinism (default: {SEED})",
+    )
+    parser.add_argument(
+        "--concurrency", type=int, default=1,
+        help="Number of concurrent API requests (default: 1, use 5-10 for faster generation)",
+    )
+    args = parser.parse_args()
+
+    if not OPENAI_API_KEY:
+        logger.error("OPENAI_API_KEY not set. Create a .env file with the key.")
+        sys.exit(1)
+
+    if args.concurrency > 1:
+        asyncio.run(_async_main(args))
+    else:
+        _sync_main(args)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """Project configuration: models, parameters, scenario matrix."""
 
 import os
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -8,35 +9,35 @@ load_dotenv()
 
 # ── OpenAI API ───────────────────────────────────────────────────────
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 
 # Model for dialog generation (cheaper, sufficient for text)
-GENERATION_MODEL = "gpt-4o-mini"
+GENERATION_MODEL: str = "gpt-4o-mini"
 
 # Model for dialog analysis (more powerful, better understanding of nuances)
-ANALYSIS_MODEL = "gpt-4o"
+ANALYSIS_MODEL: str = "gpt-4o"
 
 # Parameters for determinism
-TEMPERATURE = 0
-SEED = 42
+TEMPERATURE: int = 0
+SEED: int = 42
 
 # Timeout for API requests (seconds)
-REQUEST_TIMEOUT = 60.0
+REQUEST_TIMEOUT: float = 60.0
 
 # Checkpointing: save progress every N chats
-CHECKPOINT_INTERVAL = 10
-CHECKPOINT_PATH = "data/checkpoint.json"
-CHECKPOINT_ANALYSIS_PATH = "results/checkpoint_analysis.json"
+CHECKPOINT_INTERVAL: int = 10
+CHECKPOINT_PATH: str = "data/checkpoint.json"
+CHECKPOINT_ANALYSIS_PATH: str = "results/checkpoint_analysis.json"
 
 # ── Dataset ──────────────────────────────────────────────────────────
 
-DEFAULT_CHAT_COUNT = 120
-DEFAULT_OUTPUT_PATH = "data/chats.json"
-DEFAULT_RESULTS_PATH = "results/analysis.json"
+DEFAULT_CHAT_COUNT: int = 120
+DEFAULT_OUTPUT_PATH: str = "data/chats.json"
+DEFAULT_RESULTS_PATH: str = "results/analysis.json"
 
 # ── Categories and types ─────────────────────────────────────────────
 
-CATEGORIES = [
+CATEGORIES: list[str] = [
     "payment_issue",
     "technical_error",
     "account_access",
@@ -45,14 +46,14 @@ CATEGORIES = [
     "other",
 ]
 
-CASE_TYPES = [
+CASE_TYPES: list[str] = [
     "successful",
     "problematic",
     "conflict",
     "agent_error",
 ]
 
-AGENT_MISTAKES = [
+AGENT_MISTAKES: list[str] = [
     "ignored_question",
     "incorrect_info",
     "rude_tone",
@@ -61,7 +62,7 @@ AGENT_MISTAKES = [
 ]
 
 # Category descriptions (for prompts)
-CATEGORY_DESCRIPTIONS = {
+CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "payment_issue": "Payment issues (card not going through, double charge, subscription payment not credited for CloudTask)",
     "technical_error": "Technical errors (error 500, API integration not working, UI bug, dashboard not loading)",
     "account_access": "Account access (forgotten password, locked account, SSO/2FA authentication issues)",
@@ -71,7 +72,7 @@ CATEGORY_DESCRIPTIONS = {
 }
 
 # Case type descriptions (for prompts)
-CASE_TYPE_DESCRIPTIONS = {
+CASE_TYPE_DESCRIPTIONS: dict[str, str] = {
     "successful": "Successful case: agent quickly understands the problem, provides a clear solution, client is satisfied with the result",
     "problematic": "Problematic case: agent needs several clarifications, solution is not ideal, client is neutral or partially satisfied",
     "conflict": "Conflict case: client is emotional and dissatisfied, demands escalation or compensation, agent is under pressure",
@@ -79,7 +80,7 @@ CASE_TYPE_DESCRIPTIONS = {
 }
 
 # Agent mistake descriptions (for prompts)
-MISTAKE_DESCRIPTIONS = {
+MISTAKE_DESCRIPTIONS: dict[str, str] = {
     "ignored_question": "Ignoring question — agent doesn't answer the client's specific question, changes the topic",
     "incorrect_info": "Incorrect information — agent provides false information about CloudTask plans, features, or procedures",
     "rude_tone": "Rude tone — agent responds dismissively, impatiently, or unprofessionally",
@@ -88,7 +89,7 @@ MISTAKE_DESCRIPTIONS = {
 }
 
 
-def _build_scenario_matrix() -> list[dict]:
+def _build_scenario_matrix() -> list[dict[str, Any]]:
     """Build the full scenario matrix for generating 120 dialogs.
 
     Distribution:
@@ -97,16 +98,16 @@ def _build_scenario_matrix() -> list[dict]:
     - 20 with agent mistakes (additional)
     - 20 mixed / edge cases
     """
-    scenarios = []
+    scenarios: list[dict[str, Any]] = []
 
     # Main categories (without "other")
-    main_categories = [c for c in CATEGORIES if c != "other"]
+    main_categories: list[str] = [c for c in CATEGORIES if c != "other"]
 
     # ── Block 1: Main matrix (5 categories × 4 types × 3 variations = 60) ──
     for category in main_categories:
         for case_type in CASE_TYPES:
             for variation in range(3):
-                scenario = {
+                scenario: dict[str, Any] = {
                     "category": category,
                     "case_type": case_type,
                     "has_hidden_dissatisfaction": False,
@@ -119,7 +120,7 @@ def _build_scenario_matrix() -> list[dict]:
                 scenarios.append(scenario)
 
     # ── Block 2: Hidden dissatisfaction (20 cases) ──
-    hidden_configs = [
+    hidden_configs: list[tuple[str, str, list[str]]] = [
         # Client formally thanks, but problem not resolved
         ("payment_issue", "problematic", ["no_resolution"]),
         ("payment_issue", "successful", []),
@@ -153,7 +154,7 @@ def _build_scenario_matrix() -> list[dict]:
         })
 
     # ── Block 3: Additional agent mistakes (20 cases) ──
-    mistake_combos = [
+    mistake_combos: list[list[str]] = [
         ["ignored_question", "no_resolution"],
         ["incorrect_info", "rude_tone"],
         ["rude_tone", "no_resolution"],
@@ -187,4 +188,4 @@ def _build_scenario_matrix() -> list[dict]:
 
 
 # Full scenario matrix (deterministically built)
-SCENARIO_MATRIX = _build_scenario_matrix()
+SCENARIO_MATRIX: list[dict[str, Any]] = _build_scenario_matrix()

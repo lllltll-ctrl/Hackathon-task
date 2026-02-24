@@ -1,6 +1,7 @@
 """Prompts for dialog analysis and support quality evaluation."""
 
-SYSTEM_PROMPT = """You are an expert in evaluating SaaS platform support quality. Analyze dialogs thoroughly and objectively.
+
+SYSTEM_PROMPT: str = """You are an expert in evaluating SaaS platform support quality. Analyze dialogs thoroughly and objectively.
 
 CRITICALLY IMPORTANT — detecting HIDDEN dissatisfaction:
 A client may formally thank and be polite, but actually be dissatisfied. Signs:
@@ -17,17 +18,24 @@ even if the client is formally polite.
 Respond ONLY with valid JSON."""
 
 
-def build_analysis_prompt(dialogue: list[dict]) -> str:
-    """Build a prompt for analyzing a single dialog."""
+def build_analysis_prompt(dialogue: list[dict[str, str]]) -> str:
+    """Build a prompt for analyzing a single dialog.
+
+    Args:
+        dialogue: list of message dicts with 'role' and 'text' keys
+
+    Returns:
+        Formatted analysis prompt string
+    """
 
     # Format the dialog as text
-    formatted_lines = []
+    formatted_lines: list[str] = []
     for msg in dialogue:
-        role_label = "Client" if msg["role"] == "client" else "Agent"
+        role_label: str = "Client" if msg["role"] == "client" else "Agent"
         formatted_lines.append(f"{role_label}: {msg['text']}")
-    dialogue_text = "\n".join(formatted_lines)
+    dialogue_text: str = "\n".join(formatted_lines)
 
-    prompt = f"""Analyze the following dialog between a client and a support agent:
+    prompt: str = f"""Analyze the following dialog between a client and a support agent:
 
 ---
 {dialogue_text}

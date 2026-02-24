@@ -51,7 +51,7 @@ class Scenario(BaseModel):
     category: Category
     case_type: CaseType
     has_hidden_dissatisfaction: bool = False
-    intended_agent_mistakes: list[AgentMistake] = []
+    intended_agent_mistakes: list[AgentMistake] = Field(default_factory=list)
 
 
 class Chat(BaseModel):

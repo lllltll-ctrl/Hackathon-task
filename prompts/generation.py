@@ -2,7 +2,7 @@
 
 from config import CASE_TYPE_DESCRIPTIONS, CATEGORY_DESCRIPTIONS, MISTAKE_DESCRIPTIONS
 
-SYSTEM_PROMPT = """You are a generator of realistic support dialogs for the SaaS platform "CloudTask" in English.
+SYSTEM_PROMPT: str = """You are a generator of realistic support dialogs for the SaaS platform "CloudTask" in English.
 
 CloudTask is a cloud-based project management and team collaboration platform.
 Pricing plans: Free (up to 5 users), Pro ($15/month per user), Enterprise (custom pricing).
@@ -32,12 +32,22 @@ def build_generation_prompt(
     has_hidden_dissatisfaction: bool,
     agent_mistakes: list[str],
 ) -> str:
-    """Build a prompt for generating a single dialog."""
+    """Build a prompt for generating a single dialog.
 
-    category_desc = CATEGORY_DESCRIPTIONS.get(category, category)
-    case_type_desc = CASE_TYPE_DESCRIPTIONS.get(case_type, case_type)
+    Args:
+        category: request category key (e.g. 'payment_issue')
+        case_type: case type key (e.g. 'successful')
+        has_hidden_dissatisfaction: whether to include hidden dissatisfaction
+        agent_mistakes: list of agent mistake keys to include
 
-    prompt_parts = [
+    Returns:
+        Formatted generation prompt string
+    """
+
+    category_desc: str = CATEGORY_DESCRIPTIONS.get(category, category)
+    case_type_desc: str = CASE_TYPE_DESCRIPTIONS.get(case_type, case_type)
+
+    prompt_parts: list[str] = [
         "Generate a realistic dialog between a client and a support agent of the CloudTask platform.",
         "",
         f"Request category: {category_desc}",
@@ -82,7 +92,7 @@ def build_generation_prompt(
         prompt_parts.append("")
         prompt_parts.append("The agent must make the following mistakes (naturally, not too obviously):")
         for mistake in agent_mistakes:
-            desc = MISTAKE_DESCRIPTIONS.get(mistake, mistake)
+            desc: str = MISTAKE_DESCRIPTIONS.get(mistake, mistake)
             prompt_parts.append(f"- {desc}")
 
     prompt_parts.append("")

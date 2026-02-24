@@ -1,10 +1,11 @@
 """Analyze dialogs and evaluate CloudTask support service quality.
 
 Usage:
-    python analyze.py [--input data/chats.json] [--output results/analysis.json]
+    python analyze.py [--input data/chats.json] [--output results/analysis.json] [--concurrency 5]
 """
 
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -13,7 +14,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from openai import APIError, OpenAI, RateLimitError
+from openai import APIError, AsyncOpenAI, OpenAI, RateLimitError
 from pydantic import ValidationError
 from tqdm import tqdm
 
@@ -38,9 +39,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def save_analysis_checkpoint(results: list[dict], failed_count: int) -> None:
+def save_analysis_checkpoint(results: list[dict[str, Any]], failed_count: int) -> None:
     """Save analysis checkpoint."""
-    checkpoint_data = {
+    checkpoint_data: dict[str, Any] = {
         "results": results,
         "failed_count": failed_count,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -51,13 +52,13 @@ def save_analysis_checkpoint(results: list[dict], failed_count: int) -> None:
     logger.info(f"Analysis checkpoint saved: {len(results)} results")
 
 
-def load_analysis_checkpoint() -> tuple[list[dict], int] | None:
+def load_analysis_checkpoint() -> tuple[list[dict[str, Any]], int] | None:
     """Load checkpoint to resume analysis."""
     if not os.path.exists(CHECKPOINT_ANALYSIS_PATH):
         return None
     try:
         with open(CHECKPOINT_ANALYSIS_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            data: dict[str, Any] = json.load(f)
         logger.info(f"Analysis checkpoint loaded: {len(data.get('results', []))} results")
         return data.get("results", []), data.get("failed_count", 0)
     except (json.JSONDecodeError, OSError) as e:
@@ -98,7 +99,7 @@ def load_dataset(input_path: str) -> dict[str, Any]:
     return data
 
 
-def parse_analysis_response(raw_response: str, chat_id: str) -> dict:
+def parse_analysis_response(raw_response: str, chat_id: str) -> dict[str, Any]:
     """Parse and validate API response with analysis.
 
     Args:
@@ -112,7 +113,7 @@ def parse_analysis_response(raw_response: str, chat_id: str) -> dict:
         ValueError: if response is invalid
         json.JSONDecodeError: if JSON is malformed
     """
-    data = json.loads(raw_response)
+    data: dict[str, Any] = json.loads(raw_response)
 
     # Check required fields
     required = ["intent", "satisfaction", "quality_score", "agent_mistakes", "summary"]
@@ -120,7 +121,7 @@ def parse_analysis_response(raw_response: str, chat_id: str) -> dict:
         if field not in data:
             raise ValueError(f"Response missing required field: '{field}'")
 
-    result_data = {
+    result_data: dict[str, Any] = {
         "chat_id": chat_id,
         "intent": data["intent"],
         "satisfaction": data["satisfaction"],
@@ -137,10 +138,10 @@ def parse_analysis_response(raw_response: str, chat_id: str) -> dict:
 
 def analyze_single_chat(
     client: OpenAI,
-    chat: dict,
+    chat: dict[str, Any],
     max_retries: int = 3,
-) -> dict:
-    """Analyze a single dialog via OpenAI API.
+) -> dict[str, Any]:
+    """Analyze a single dialog via OpenAI API (synchronous).
 
     Args:
         client: OpenAI client instance
@@ -150,7 +151,7 @@ def analyze_single_chat(
     Returns:
         Dictionary with analysis results
     """
-    chat_id = chat["id"]
+    chat_id: str = chat["id"]
     user_prompt = build_analysis_prompt(chat["messages"])
 
     for attempt in range(max_retries):
@@ -190,8 +191,66 @@ def analyze_single_chat(
     raise RuntimeError(f"Failed to analyze chat {chat_id} after {max_retries} attempts")
 
 
+async def async_analyze_single_chat(
+    client: AsyncOpenAI,
+    chat: dict[str, Any],
+    semaphore: asyncio.Semaphore,
+    max_retries: int = 3,
+) -> dict[str, Any]:
+    """Analyze a single dialog via OpenAI API (asynchronous).
+
+    Args:
+        client: AsyncOpenAI client instance
+        chat: dialog data
+        semaphore: semaphore for concurrency control
+        max_retries: maximum retry attempts on errors
+
+    Returns:
+        Dictionary with analysis results
+    """
+    chat_id: str = chat["id"]
+    user_prompt = build_analysis_prompt(chat["messages"])
+
+    for attempt in range(max_retries):
+        try:
+            async with semaphore:
+                response = await client.chat.completions.create(
+                    model=ANALYSIS_MODEL,
+                    temperature=TEMPERATURE,
+                    seed=SEED,
+                    max_tokens=500,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+
+            raw = response.choices[0].message.content
+            if raw is None:
+                raise ValueError("API returned empty response")
+            result = parse_analysis_response(raw, chat_id)
+            return result
+
+        except RateLimitError:
+            wait = 2 ** attempt
+            logger.warning(f"Rate limit for {chat_id}, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
+            await asyncio.sleep(wait)
+        except (json.JSONDecodeError, ValueError, ValidationError) as e:
+            logger.warning(f"Parse error for {chat_id} (attempt {attempt + 1}): {e}")
+            if attempt == max_retries - 1:
+                raise
+        except APIError as e:
+            logger.warning(f"API error for {chat_id} (attempt {attempt + 1}): {e}")
+            if attempt == max_retries - 1:
+                raise
+            await asyncio.sleep(2 ** attempt)
+
+    raise RuntimeError(f"Failed to analyze chat {chat_id} after {max_retries} attempts")
+
+
 def save_results(
-    results: list[dict],
+    results: list[dict[str, Any]],
     output_path: str,
     model: str = ANALYSIS_MODEL,
 ) -> None:
@@ -204,7 +263,7 @@ def save_results(
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    output = {
+    output: dict[str, Any] = {
         "metadata": {
             "analyzed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "model": model,
@@ -219,7 +278,7 @@ def save_results(
     logger.info(f"Results saved: {output_path} ({len(results)} analyses)")
 
 
-def print_summary(results: list[dict]) -> None:
+def print_summary(results: list[dict[str, Any]]) -> None:
     """Print summary statistics of analysis results."""
 
     total = len(results)
@@ -230,17 +289,17 @@ def print_summary(results: list[dict]) -> None:
     # Satisfaction statistics
     satisfaction_counts: dict[str, int] = {}
     for r in results:
-        s = r["satisfaction"]
+        s: str = r["satisfaction"]
         satisfaction_counts[s] = satisfaction_counts.get(s, 0) + 1
 
     # Intent statistics
     intent_counts: dict[str, int] = {}
     for r in results:
-        i = r["intent"]
-        intent_counts[i] = intent_counts.get(i, 0) + 1
+        intent: str = r["intent"]
+        intent_counts[intent] = intent_counts.get(intent, 0) + 1
 
     # Average quality
-    avg_quality = sum(r["quality_score"] for r in results) / total
+    avg_quality: float = sum(r["quality_score"] for r in results) / total
 
     # Agent mistakes
     all_mistakes: list[str] = []
@@ -250,7 +309,7 @@ def print_summary(results: list[dict]) -> None:
     for m in all_mistakes:
         mistake_counts[m] = mistake_counts.get(m, 0) + 1
 
-    chats_with_mistakes = sum(1 for r in results if r["agent_mistakes"])
+    chats_with_mistakes: int = sum(1 for r in results if r["agent_mistakes"])
 
     print("\n" + "=" * 60)
     print("ANALYSIS SUMMARY")
@@ -267,9 +326,9 @@ def print_summary(results: list[dict]) -> None:
         print(f"  {level:12s}: {count:3d} ({pct:5.1f}%) {bar}")
 
     print("\nRequest categories:")
-    for intent, count in sorted(intent_counts.items(), key=lambda x: -x[1]):
+    for cat, count in sorted(intent_counts.items(), key=lambda x: -x[1]):
         pct = count / total * 100
-        print(f"  {intent:20s}: {count:3d} ({pct:5.1f}%)")
+        print(f"  {cat:20s}: {count:3d} ({pct:5.1f}%)")
 
     print("\nAgent mistakes:")
     print(f"  Dialogs with mistakes: {chats_with_mistakes} / {total} ({chats_with_mistakes / total * 100:.1f}%)")
@@ -280,26 +339,78 @@ def print_summary(results: list[dict]) -> None:
     print("=" * 60 + "\n")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Analyze CloudTask support dialogs"
-    )
-    parser.add_argument(
-        "--input", type=str, default=DEFAULT_OUTPUT_PATH,
-        help=f"Path to dialogs file (default: {DEFAULT_OUTPUT_PATH})",
-    )
-    parser.add_argument(
-        "--output", type=str, default=DEFAULT_RESULTS_PATH,
-        help=f"Path to results file (default: {DEFAULT_RESULTS_PATH})",
-    )
-    args = parser.parse_args()
-
-    if not OPENAI_API_KEY:
-        logger.error("OPENAI_API_KEY not set. Create a .env file with the key.")
-        sys.exit(1)
-
+async def _async_main(args: argparse.Namespace) -> None:
+    """Async entry point for concurrent analysis."""
     dataset = load_dataset(args.input)
-    chats = dataset["chats"]
+    chats: list[dict[str, Any]] = dataset["chats"]
+
+    logger.info(f"Loaded {len(chats)} dialogs from {args.input}")
+    logger.info(
+        f"Starting async analysis "
+        f"(model: {ANALYSIS_MODEL}, seed: {SEED}, concurrency: {args.concurrency})"
+    )
+
+    client = AsyncOpenAI(
+        api_key=OPENAI_API_KEY,
+        timeout=REQUEST_TIMEOUT,
+    )
+    semaphore = asyncio.Semaphore(args.concurrency)
+
+    # Try to load checkpoint
+    results: list[dict[str, Any]]
+    checkpoint = load_analysis_checkpoint()
+    if checkpoint is not None:
+        results, failed = checkpoint
+        analyzed_ids = {r["chat_id"] for r in results}
+        chats_to_analyze = [c for c in chats if c["id"] not in analyzed_ids]
+        logger.info(f"Resuming from checkpoint: {len(results)} results already available")
+    else:
+        results = []
+        failed = 0
+        chats_to_analyze = chats
+
+    pbar = tqdm(total=len(chats_to_analyze), desc="Analyzing dialogs")
+
+    # Process in batches for checkpoint support
+    batch_size = args.concurrency * 2
+    for batch_start in range(0, len(chats_to_analyze), batch_size):
+        batch = chats_to_analyze[batch_start:batch_start + batch_size]
+        gather_tasks = [
+            async_analyze_single_chat(client, chat, semaphore)
+            for chat in batch
+        ]
+
+        gather_results = await asyncio.gather(*gather_tasks, return_exceptions=True)
+
+        for gather_result in gather_results:
+            if isinstance(gather_result, BaseException):
+                logger.error(f"Failed to analyze chat: {gather_result}")
+                failed += 1
+            else:
+                results.append(gather_result)
+            pbar.update(1)
+
+        # Checkpoint after each batch
+        if len(results) % CHECKPOINT_INTERVAL < batch_size:
+            save_analysis_checkpoint(results, failed)
+
+    pbar.close()
+
+    # Successful completion - remove checkpoint
+    clear_analysis_checkpoint()
+    save_results(results, args.output, model=ANALYSIS_MODEL)
+    print_summary(results)
+
+    logger.info(f"Done! Successful: {len(results)}, failures: {failed}")
+
+    if failed > 0:
+        logger.warning(f"{failed} dialogs were not analyzed due to errors")
+
+
+def _sync_main(args: argparse.Namespace) -> None:
+    """Synchronous entry point for sequential analysis."""
+    dataset = load_dataset(args.input)
+    chats: list[dict[str, Any]] = dataset["chats"]
 
     logger.info(f"Loaded {len(chats)} dialogs from {args.input}")
     logger.info(f"Starting analysis (model: {ANALYSIS_MODEL}, seed: {SEED})")
@@ -310,6 +421,7 @@ def main():
     )
 
     # Try to load checkpoint
+    results: list[dict[str, Any]]
     checkpoint = load_analysis_checkpoint()
     if checkpoint is not None:
         results, failed = checkpoint
@@ -345,6 +457,34 @@ def main():
 
     if failed > 0:
         logger.warning(f"{failed} dialogs were not analyzed due to errors")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Analyze CloudTask support dialogs"
+    )
+    parser.add_argument(
+        "--input", type=str, default=DEFAULT_OUTPUT_PATH,
+        help=f"Path to dialogs file (default: {DEFAULT_OUTPUT_PATH})",
+    )
+    parser.add_argument(
+        "--output", type=str, default=DEFAULT_RESULTS_PATH,
+        help=f"Path to results file (default: {DEFAULT_RESULTS_PATH})",
+    )
+    parser.add_argument(
+        "--concurrency", type=int, default=1,
+        help="Number of concurrent API requests (default: 1, use 5-10 for faster analysis)",
+    )
+    args = parser.parse_args()
+
+    if not OPENAI_API_KEY:
+        logger.error("OPENAI_API_KEY not set. Create a .env file with the key.")
+        sys.exit(1)
+
+    if args.concurrency > 1:
+        asyncio.run(_async_main(args))
+    else:
+        _sync_main(args)
 
 
 if __name__ == "__main__":
