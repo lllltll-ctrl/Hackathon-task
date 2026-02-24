@@ -2,9 +2,9 @@
 
 from config import CASE_TYPE_DESCRIPTIONS, CATEGORY_DESCRIPTIONS, MISTAKE_DESCRIPTIONS
 
-SYSTEM_PROMPT: str = """You are a generator of realistic support dialogs for the SaaS platform "CloudTask" in English.
+SYSTEM_PROMPT: str = """You are a generator of realistic support dialogs for the SaaS platform "CX-Ray" in English.
 
-CloudTask is a cloud-based project management and team collaboration platform.
+CX-Ray is a cloud-based project management and team collaboration platform.
 Pricing plans: Free (up to 5 users), Pro ($15/month per user), Enterprise (custom pricing).
 Features: dashboards, kanban boards, time tracking, API integrations, reports, team chat.
 
@@ -48,7 +48,7 @@ def build_generation_prompt(
     case_type_desc: str = CASE_TYPE_DESCRIPTIONS.get(case_type, case_type)
 
     prompt_parts: list[str] = [
-        "Generate a realistic dialog between a client and a support agent of the CloudTask platform.",
+        "Generate a realistic dialog between a client and a support agent of the CX-Ray platform.",
         "",
         f"Request category: {category_desc}",
         f"Case type: {case_type_desc}",

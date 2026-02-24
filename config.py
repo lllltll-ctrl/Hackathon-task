@@ -63,12 +63,12 @@ AGENT_MISTAKES: list[str] = [
 
 # Category descriptions (for prompts)
 CATEGORY_DESCRIPTIONS: dict[str, str] = {
-    "payment_issue": "Payment issues (card not going through, double charge, subscription payment not credited for CloudTask)",
+    "payment_issue": "Payment issues (card not going through, double charge, subscription payment not credited for CX-Ray)",
     "technical_error": "Technical errors (error 500, API integration not working, UI bug, dashboard not loading)",
     "account_access": "Account access (forgotten password, locked account, SSO/2FA authentication issues)",
-    "tariff_question": "Plan/pricing questions (difference between Free/Pro/Enterprise, plan change, feature limits, CloudTask subscription terms)",
+    "tariff_question": "Plan/pricing questions (difference between Free/Pro/Enterprise, plan change, feature limits, CX-Ray subscription terms)",
     "refund_request": "Refund requests (refund for unused subscription period, auto-renewal cancellation, accidental charge)",
-    "other": "Other inquiries (improvement suggestions, general questions about CloudTask features, service complaints)",
+    "other": "Other inquiries (improvement suggestions, general questions about CX-Ray features, service complaints)",
 }
 
 # Case type descriptions (for prompts)
@@ -82,7 +82,7 @@ CASE_TYPE_DESCRIPTIONS: dict[str, str] = {
 # Agent mistake descriptions (for prompts)
 MISTAKE_DESCRIPTIONS: dict[str, str] = {
     "ignored_question": "Ignoring question — agent doesn't answer the client's specific question, changes the topic",
-    "incorrect_info": "Incorrect information — agent provides false information about CloudTask plans, features, or procedures",
+    "incorrect_info": "Incorrect information — agent provides false information about CX-Ray plans, features, or procedures",
     "rude_tone": "Rude tone — agent responds dismissively, impatiently, or unprofessionally",
     "no_resolution": "No resolution — dialog ends without actually resolving the client's problem",
     "unnecessary_escalation": "Unnecessary escalation — agent redirects to another specialist without attempting to solve it themselves",

@@ -120,11 +120,11 @@ Client: "Alright, I'll try to figure it out myself. Thanks for your time."
 ```
 System role:
 You are a generator of realistic support dialogs for the SaaS platform
-"CloudTask" in English.
+"CX-Ray" in English.
 
 User prompt:
 Generate a realistic dialog between a client and a support agent of the
-CloudTask platform.
+CX-Ray platform.
 
 Request category: {category_description}
 Case type: {case_type_description}

@@ -1,4 +1,4 @@
-"""Analyze dialogs and evaluate CloudTask support service quality.
+"""Analyze dialogs and evaluate CX-Ray support service quality.
 
 Usage:
     python analyze.py [--input data/chats.json] [--output results/analysis.json] [--concurrency 5]
@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -46,9 +47,17 @@ def save_analysis_checkpoint(results: list[dict[str, Any]], failed_count: int) -
         "failed_count": failed_count,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    os.makedirs(os.path.dirname(CHECKPOINT_ANALYSIS_PATH), exist_ok=True)
-    with open(CHECKPOINT_ANALYSIS_PATH, "w", encoding="utf-8") as f:
-        json.dump(checkpoint_data, f, ensure_ascii=False)
+    checkpoint_dir = os.path.dirname(CHECKPOINT_ANALYSIS_PATH)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    # Atomic write: write to temp file, then rename to avoid corruption on crash
+    fd, tmp_path = tempfile.mkstemp(dir=checkpoint_dir, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(checkpoint_data, f, ensure_ascii=False)
+        os.replace(tmp_path, CHECKPOINT_ANALYSIS_PATH)
+    except BaseException:
+        os.unlink(tmp_path)
+        raise
     logger.info(f"Analysis checkpoint saved: {len(results)} results")
 
 
@@ -391,8 +400,7 @@ async def _async_main(args: argparse.Namespace) -> None:
             pbar.update(1)
 
         # Checkpoint after each batch
-        if len(results) % CHECKPOINT_INTERVAL < batch_size:
-            save_analysis_checkpoint(results, failed)
+        save_analysis_checkpoint(results, failed)
 
     pbar.close()
 
@@ -461,7 +469,7 @@ def _sync_main(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Analyze CloudTask support dialogs"
+        description="Analyze CX-Ray support dialogs"
     )
     parser.add_argument(
         "--input", type=str, default=DEFAULT_OUTPUT_PATH,

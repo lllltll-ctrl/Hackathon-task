@@ -1,4 +1,4 @@
-"""Generate client-agent dialog dataset for CloudTask support service.
+"""Generate client-agent dialog dataset for CX-Ray support service.
 
 Usage:
     python generate.py [--count 120] [--output data/chats.json] [--seed 42] [--concurrency 5]
@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -45,9 +46,17 @@ def save_checkpoint(chats: list[dict[str, Any]], failed_count: int) -> None:
         "failed_count": failed_count,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    os.makedirs(os.path.dirname(CHECKPOINT_PATH), exist_ok=True)
-    with open(CHECKPOINT_PATH, "w", encoding="utf-8") as f:
-        json.dump(checkpoint_data, f, ensure_ascii=False)
+    checkpoint_dir = os.path.dirname(CHECKPOINT_PATH)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    # Atomic write: write to temp file, then rename to avoid corruption on crash
+    fd, tmp_path = tempfile.mkstemp(dir=checkpoint_dir, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(checkpoint_data, f, ensure_ascii=False)
+        os.replace(tmp_path, CHECKPOINT_PATH)
+    except BaseException:
+        os.unlink(tmp_path)
+        raise
     logger.info(f"Checkpoint saved: {len(chats)} chats, {failed_count} failures")
 
 
@@ -333,8 +342,7 @@ async def _async_main(args: argparse.Namespace) -> None:
             pbar.update(1)
 
         # Checkpoint after each batch
-        if len(chats) % CHECKPOINT_INTERVAL < batch_size:
-            save_checkpoint(chats, failed)
+        save_checkpoint(chats, failed)
 
     pbar.close()
 
@@ -398,7 +406,7 @@ def _sync_main(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate CloudTask support dialog dataset"
+        description="Generate CX-Ray support dialog dataset"
     )
     parser.add_argument(
         "--count", type=int, default=DEFAULT_CHAT_COUNT,
