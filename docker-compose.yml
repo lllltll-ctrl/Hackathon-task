@@ -1,27 +1,25 @@
-version: "3.8"
-
 services:
-  # Генерація датасету діалогів
+  # Generate dialog dataset
   generate:
     build: .
-    command: ["generate.py", "--count", "120", "--output", "data/chats.json"]
+    command: ["generate.py", "--count", "120", "--output", "data/chats.json", "--concurrency", "5"]
     env_file:
       - .env
     volumes:
       - ./data:/app/data
       - ./results:/app/results
 
-  # Аналіз діалогів
+  # Analyze dialogs
   analyze:
     build: .
-    command: ["analyze.py", "--input", "data/chats.json", "--output", "results/analysis.json"]
+    command: ["analyze.py", "--input", "data/chats.json", "--output", "results/analysis.json", "--concurrency", "5"]
     env_file:
       - .env
     volumes:
       - ./data:/app/data
       - ./results:/app/results
 
-  # Запуск тестів
+  # Run tests
   test:
     build: .
     command: ["-m", "pytest", "tests/", "-v"]
