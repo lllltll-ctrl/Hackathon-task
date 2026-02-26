@@ -12,10 +12,12 @@ Pipeline 1: ГЕНЕРАЦІЯ
 └──────────┘    └───────────────┘    └───────────┘    └────────────┘
 
 Pipeline 2: АНАЛІЗ
-┌────────────┐    ┌───────────────┐    ┌───────────┐    ┌────────────┐
-│ chats.json │───>│ Формування   │───>│ OpenAI    │───>│ Валідація  │───> analysis.json
-│            │    │ промпту      │    │ API Call  │    │ (Pydantic) │
-└────────────┘    └───────────────┘    └───────────┘    └────────────┘
+┌────────────┐    ┌───────────────┐    ┌───────────┐    ┌────────────┐    ┌─────────────┐
+│ chats.json │───>│ Формування   │───>│ OpenAI    │───>│ Валідація  │───>│ Пост-       │───> analysis.json
+│            │    │ промпту      │    │ API Call  │    │ (Pydantic) │    │ валідація   │
+└────────────┘    └───────────────┘    └───────────┘    └────────────┘    │(validation. │
+                                                                          │ py — правила│
+                                                                          └─────────────┘
 
 Pipeline 3: NOTEBOOK АНАЛІЗ
 ┌────────────┐    ┌────────────────┐    ┌────────────────┐
@@ -30,12 +32,13 @@ Pipeline 3: NOTEBOOK АНАЛІЗ
 
 | Компонент | Відповідальність |
 |-----------|-----------------|
-| `config.py` | Всі константи, параметри моделей, seed, категорії, матриця сценаріїв |
-| `models.py` | Pydantic v2 моделі для валідації всіх даних |
-| `prompts/generation.py` | Шаблони промптів для генерації діалогів (англійською) |
-| `prompts/analysis.py` | Шаблони промптів для аналізу діалогів (англійською) |
+| `config.py` | Всі константи, параметри моделей, seed, категорії, матриця сценаріїв, варіативні контексти, крос-категорійні сценарії |
+| `models.py` | Pydantic v2 моделі для валідації всіх даних (включно з MixedIntent) |
+| `validation.py` | Правило-базова пост-валідація: детерміновані перевірки узгодженості результатів аналізу |
+| `prompts/generation.py` | Промпти для генерації з варіативними контекстами та паттернами поведінки |
+| `prompts/analysis.py` | Промпти для аналізу з семантичними індикаторами (без шаблонних фраз) |
 | `generate.py` | Оркестрація генерації: цикл по сценаріях, виклик API, checkpoint, збереження |
-| `analyze.py` | Оркестрація аналізу: читання чатів, виклик API, checkpoint, збереження результатів |
+| `analyze.py` | Оркестрація аналізу: читання чатів, виклик API, пост-валідація, checkpoint, збереження результатів |
 | `analysis_notebook.ipynb` | Покроковий аналіз: графіки, розподіли, виявлення аномалій |
 
 ---
@@ -46,7 +49,7 @@ Pipeline 3: NOTEBOOK АНАЛІЗ
 | Параметр | Значення | Обґрунтування |
 |----------|----------|---------------|
 | **Модель** | `gpt-4o-mini` | Достатня якість для генерації діалогів, низька вартість |
-| **temperature** | `0` | Детермінованість результатів |
+| **temperature** | `0.3` | Невелика варіативність для різноманітності діалогів |
 | **seed** | `42` | Фіксований seed для відтворюваності |
 | **max_tokens** | `2000` | Достатньо для діалогу з 6-14 реплік |
 | **response_format** | `{ "type": "json_object" }` | Гарантований JSON-вивід |
@@ -89,17 +92,15 @@ Pipeline 3: NOTEBOOK АНАЛІЗ
 ### 3.3 Спеціальні сценарії
 
 #### Прихована незадоволеність (20 діалогів)
-Клієнт формально ввічливий, дякує агенту, але:
-- Проблема фактично не вирішена
-- Клієнт отримав відписку замість рішення
-- Агент перенаправив на FAQ замість реальної допомоги
-- Клієнт погодився, але з сарказмом або пасивною агресією
+Клієнт формально ввічливий, але проблема не вирішена. Використовуються 3 різні поведінкові паттерни:
 
-**Приклад:**
-```
-Client: "Alright, I'll try to figure it out myself. Thanks for your time."
-(Problem: client didn't get a real solution, just gave up)
-```
+| # | Паттерн | Опис |
+|---|---------|------|
+| 0 | Відступлення | Клієнт здається і бере відповідальність на себе |
+| 1 | Формальна ввічливість | Клієнт дякує, але уникає подальшого обговорення |
+| 2 | Перекладання | Клієнт планує звернутись через інший канал |
+
+Паттерн обирається через `variation_index % 3`, що забезпечує рівномірний розподіл.
 
 #### Помилки агента
 
@@ -129,23 +130,35 @@ CX-Ray platform.
 Request category: {category_description}
 Case type: {case_type_description}
 
+[Варіативний контекст: persona, situation, specific_detail]
 [Conditional instructions based on case type: successful/problematic/conflict]
-[Hidden dissatisfaction instructions if applicable]
+[Hidden dissatisfaction — один з 3 різних поведінкових паттернів]
 [Agent mistake instructions if applicable]
+[Mixed intent instructions if applicable — apparent vs actual category]
 
 Response — ONLY valid JSON with a "messages" field.
 Each message has fields "role" (client/agent) and "text".
 ```
+
+**Варіативність промптів:**
+- Кожен сценарій має `variation_index` (0, 1, 2), що обирає один з 3 контекстів
+- Для прихованої незадоволеності використовуються 3 різні поведінкові паттерни
+  (відступлення, формальна ввічливість, перекладання відповідальності)
+- Для крос-категорійних сценаріїв — інструкції щодо apparent vs actual category
 
 ### 4.2 Промпт аналізу діалогу
 
 ```
 System role:
 You are an expert in evaluating SaaS platform support quality.
-CRITICALLY IMPORTANT — detecting HIDDEN dissatisfaction:
-- Client says 'okay, I'll try to figure it out myself' — gave up
-- 'Thanks for the information' — when info doesn't actually help
-- Passive aggression, sarcasm
+
+CRITICALLY IMPORTANT — detecting HIDDEN dissatisfaction using
+SEMANTIC BEHAVIORAL INDICATORS:
+- The client's original problem was NOT resolved
+- The client stops asking follow-up questions and disengages
+- The client takes responsibility when the agent should have resolved it
+- Mismatch between initial urgency and brief, resigned closing messages
+- No concrete solution was provided (only FAQ/generic advice)
 If problem NOT resolved — satisfaction = "unsatisfied", even if client is polite.
 
 User prompt:
@@ -162,17 +175,32 @@ Determine:
 Response — ONLY valid JSON.
 ```
 
+**Ключова різниця від попереднього підходу:** Промпт аналізу використовує
+семантичні індикатори поведінки (disengagement, tone shift, unresolved outcome)
+замість точних фраз. Це усуває тавтологічну валідацію, де генерація та аналіз
+використовували однакові маркери.
+
 ---
 
-## 5. Логіка детермінованості
+## 5. Логіка детермінованості та варіативності
 
-Для забезпечення відтворюваних результатів:
+Система використовує **різні стратегії для генерації та аналізу**:
 
+### Генерація — контрольована варіативність
+1. **`temperature=0.3`** — невелика варіативність для різноманітності діалогів
+2. **`seed=42`** — фіксований seed для відтворюваності
+3. **Варіативні контексти** — 3 унікальні контексти (persona, situation, specific_detail) на кожну категорію
+4. **3 поведінкові паттерни** — для прихованої незадоволеності (обираються через `variation_index`)
+
+### Аналіз — максимальна детермінованість
 1. **`temperature=0`** — модель завжди обирає найімовірніший токен
-2. **`seed=42`** — фіксований seed для API (OpenAI підтримує з листопада 2023)
-3. **Фіксований порядок сценаріїв** — матриця генерується детерміновано з config.py
-4. **JSON mode** — `response_format={"type": "json_object"}` гарантує валідний JSON
-5. **Pydantic-валідація** — кожна відповідь перевіряється на відповідність схемі
+2. **`seed=42`** — фіксований seed для API
+3. **Правило-базова пост-валідація** — детерміновані правила корекції після LLM-аналізу
+
+### Спільне
+1. **Фіксований порядок сценаріїв** — матриця генерується детерміновано з config.py
+2. **JSON mode** — `response_format={"type": "json_object"}` гарантує валідний JSON
+3. **Pydantic-валідація** — кожна відповідь перевіряється на відповідність схемі
 
 > **Примітка:** OpenAI зазначає, що `seed` забезпечує "mostly deterministic" результати. Для 100% відтворюваності варто кешувати результати API-викликів.
 
@@ -215,11 +243,18 @@ class Message(BaseModel):
     role: Literal["client", "agent"]
     text: str = Field(min_length=1)
 
+class MixedIntent(BaseModel):
+    apparent_category: Category
+    actual_category: Category
+    description: str
+
 class Scenario(BaseModel):
     category: Category
     case_type: CaseType
     has_hidden_dissatisfaction: bool = False
     intended_agent_mistakes: list[AgentMistake] = []
+    variation_index: int = 0
+    mixed_intent: MixedIntent | None = None
 
 class Chat(BaseModel):
     id: str
@@ -233,11 +268,38 @@ class AnalysisResult(BaseModel):
     quality_score: int = Field(ge=1, le=5)
     agent_mistakes: list[AgentMistake]
     summary: str
+    validation_warnings: list[str] = Field(default_factory=list)
 ```
 
 ---
 
-## 7. Checkpointing
+## 7. Правило-базова пост-валідація (validation.py)
+
+Після LLM-аналізу кожен результат проходить через детерміновані правила:
+
+| # | Правило | Дія |
+|---|---------|-----|
+| 1 | Є помилки агента → `quality_score ≤ 3` | Автокорекція score до 3 |
+| 2 | Є помилка `rude_tone` → `quality_score ≤ 2` | Автокорекція score до 2 |
+| 3 | Є помилка `no_resolution` → `satisfaction ≠ satisfied` | Корекція satisfaction на `neutral` |
+| 4 | `satisfied` + `quality_score ≤ 2` | Попередження-аномалія (без корекції) |
+| 5 | Немає помилок + `quality_score ≤ 2` | Попередження-аномалія (без корекції) |
+
+**Принцип:** Правила 1-3 автоматично коригують результат. Правила 4-5 лише додають `validation_warnings` без зміни даних (аномалії для ручної перевірки).
+
+Результат `validation_warnings` зберігається в кожному `AnalysisResult`:
+```json
+{
+  "validation_warnings": [
+    "corrected:quality_score 4→3 (mistakes present)",
+    "anomaly:satisfied_but_low_score (quality_score=2)"
+  ]
+}
+```
+
+---
+
+## 8. Checkpointing
 
 Для великих датасетів система зберігає прогрес кожні N чатів (за замовчуванням 10):
 
@@ -255,7 +317,7 @@ class AnalysisResult(BaseModel):
 
 ---
 
-## 8. Обробка помилок
+## 9. Обробка помилок
 
 | Ситуація | Стратегія |
 |----------|-----------|
@@ -267,11 +329,11 @@ class AnalysisResult(BaseModel):
 
 ---
 
-## 9. CLI-інтерфейс
+## 10. CLI-інтерфейс
 
 ### generate.py
 ```bash
-python generate.py [--count 120] [--output data/chats.json] [--seed 42]
+python generate.py [--count 120] [--output data/chats.json] [--seed 42] [--concurrency 5]
 ```
 
 | Аргумент | Опис | За замовчуванням |
@@ -279,16 +341,18 @@ python generate.py [--count 120] [--output data/chats.json] [--seed 42]
 | `--count` | Кількість діалогів | 120 |
 | `--output` | Шлях до вихідного файлу | `data/chats.json` |
 | `--seed` | Seed для детермінованості | 42 |
+| `--concurrency` | Кількість паралельних запитів до API | 1 |
 
 ### analyze.py
 ```bash
-python analyze.py [--input data/chats.json] [--output results/analysis.json]
+python analyze.py [--input data/chats.json] [--output results/analysis.json] [--concurrency 5]
 ```
 
 | Аргумент | Опис | За замовчуванням |
 |----------|------|-----------------|
 | `--input` | Шлях до файлу діалогів | `data/chats.json` |
 | `--output` | Шлях до файлу результатів | `results/analysis.json` |
+| `--concurrency` | Кількість паралельних запитів до API | 1 |
 
 ### analysis_notebook.ipynb
 ```bash
@@ -299,7 +363,7 @@ Notebook автоматично завантажує `data/chats.json` та `res
 
 ---
 
-## 10. Jupyter Notebook — аналіз та аномалії
+## 11. Jupyter Notebook — аналіз та аномалії
 
 `analysis_notebook.ipynb` містить 8 секцій:
 

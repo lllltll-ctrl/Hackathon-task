@@ -167,7 +167,8 @@ class TestGenerateSingleChat:
         call_kwargs = mock_client.chat.completions.create.call_args
         assert "model" in call_kwargs.kwargs or "model" in (call_kwargs.args if call_kwargs.args else {})
 
-    def test_api_called_with_temperature_zero(self, mock_client):
+    def test_api_called_with_generation_temperature(self, mock_client):
+        from config import GENERATION_TEMPERATURE
         scenario = {
             "category": "payment_issue",
             "case_type": "successful",
@@ -176,7 +177,7 @@ class TestGenerateSingleChat:
         }
         generate_single_chat(mock_client, scenario, chat_id="chat_001")
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        assert call_kwargs.get("temperature") == 0
+        assert call_kwargs.get("temperature") == GENERATION_TEMPERATURE
 
 
 class TestSaveDataset:

@@ -7,8 +7,9 @@ ai-support-analyzer/
 ├── generate.py              # Генерація датасету діалогів
 ├── analyze.py               # Аналіз діалогів та оцінка якості
 ├── analysis_notebook.ipynb  # Покроковий аналіз та виявлення аномалій (Jupyter)
-├── config.py                # Конфігурація: моделі, параметри, константи
+├── config.py                # Конфігурація: моделі, параметри, константи, варіативні контексти
 ├── models.py                # Pydantic-моделі для валідації даних
+├── validation.py            # Правило-базова пост-валідація результатів аналізу
 ├── requirements.txt         # Python-залежності
 ├── README.md                # Інструкція запуску
 ├── .env.example             # Шаблон змінних середовища
@@ -30,6 +31,7 @@ ai-support-analyzer/
 │   ├── test_prompts.py      # Тести промптів
 │   ├── test_generate.py     # Тести генерації
 │   ├── test_analyze.py      # Тести аналізу
+│   ├── test_validation.py   # Тести правило-базової валідації
 │   └── test_integration.py  # Інтеграційні тести
 └── prompts/
     ├── generation.py        # Промпти для генерації діалогів
@@ -45,13 +47,14 @@ ai-support-analyzer/
 | `generate.py` | Головний скрипт генерації. Створює 120 діалогів англійською мовою клієнт-агент, покриваючи всі сценарії та типи кейсів. Зберігає результат у `data/chats.json` |
 | `analyze.py` | Головний скрипт аналізу. Читає діалоги з `data/chats.json`, оцінює кожен через LLM, зберігає результати в `results/analysis.json` |
 | `analysis_notebook.ipynb` | Jupyter Notebook з покроковим аналізом датасету: графіки розподілів, виявлення аномалій, патерни помилок агентів |
-| `config.py` | Централізована конфігурація: назви моделей, temperature, seed, кількість діалогів, категорії, типи кейсів, матриця сценаріїв |
-| `models.py` | Pydantic v2 моделі для валідації даних: Category, CaseType, AgentMistake, Satisfaction, Message, Scenario, Chat, AnalysisResult |
-| `prompts/generation.py` | Шаблони промптів для генерації діалогів різних типів та категорій |
-| `prompts/analysis.py` | Шаблони промптів для аналізу діалогів (визначення intent, satisfaction, quality, mistakes) |
+| `config.py` | Централізована конфігурація: назви моделей, temperature (окремо для генерації та аналізу), seed, категорії, типи кейсів, матриця сценаріїв, варіативні контексти, крос-категорійні сценарії |
+| `models.py` | Pydantic v2 моделі: Category, CaseType, AgentMistake, Satisfaction, Message, MixedIntent, Scenario, Chat, AnalysisResult |
+| `validation.py` | Правило-базова пост-валідація: перевірка узгодженості quality_score, satisfaction та agent_mistakes після LLM-аналізу |
+| `prompts/generation.py` | Промпти для генерації з підтримкою варіативних контекстів, паттернів прихованої незадоволеності та крос-категорійних сценаріїв |
+| `prompts/analysis.py` | Промпти для аналізу з семантичними індикаторами поведінки (замість шаблонних фраз) |
 | `requirements.txt` | Залежності: `openai`, `pydantic`, `python-dotenv`, `tqdm`, `pandas`, `matplotlib`, `seaborn`, `jupyter`, `pytest`, `ruff`, `mypy` |
 | `.env.example` | Шаблон: `OPENAI_API_KEY=your-api-key-here` |
-| `tests/` | 130 тестів (pytest): моделі, конфігурація, промпти, генерація, аналіз, інтеграційні |
+| `tests/` | 166 тестів (pytest): моделі, конфігурація, промпти, генерація, аналіз, валідація, інтеграційні |
 
 ---
 
@@ -65,11 +68,11 @@ ai-support-analyzer/
 └─────────────┘     └──────────────┘     └──────┬───────┘
                                                 │
                                                 v
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│ prompts/    │────>│ analyze.py   │────>│ results/     │
-│ analysis    │     │              │     │ analysis.json│
-│             │     │ OpenAI API   │     │              │
-└─────────────┘     └──────────────┘     └──────┬───────┘
+┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ prompts/    │────>│ analyze.py   │────>│ validation.py│────>│ results/     │
+│ analysis    │     │              │     │ (пост-       │     │ analysis.json│
+│             │     │ OpenAI API   │     │  валідація)  │     │              │
+└─────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
                                                 │
                                                 v
                                          ┌──────────────┐
@@ -101,7 +104,9 @@ ai-support-analyzer/
         "category": "payment_issue",
         "case_type": "successful",
         "has_hidden_dissatisfaction": false,
-        "intended_agent_mistakes": []
+        "intended_agent_mistakes": [],
+        "variation_index": 0,
+        "mixed_intent": null
       },
       "messages": [
         {
@@ -154,7 +159,8 @@ ai-support-analyzer/
       "satisfaction": "satisfied",
       "quality_score": 5,
       "agent_mistakes": [],
-      "summary": "Client had a payment issue with card being declined. Agent quickly identified the problem and helped resolve it."
+      "summary": "Client had a payment issue with card being declined. Agent quickly identified the problem and helped resolve it.",
+      "validation_warnings": []
     }
   ]
 }
@@ -168,6 +174,7 @@ ai-support-analyzer/
 | `quality_score` | integer | 1–5 (1 = terrible, 5 = excellent) |
 | `agent_mistakes` | array | Список з: `ignored_question`, `incorrect_info`, `rude_tone`, `no_resolution`, `unnecessary_escalation` |
 | `summary` | string | Короткий опис ситуації (англійською) |
+| `validation_warnings` | array | Список попереджень/корекцій від правило-базової пост-валідації |
 
 ---
 
@@ -182,6 +189,9 @@ ai-support-analyzer/
 | refund_request | 4 | 3 | 3 | 2 | 12 |
 | **Підтипи** | | | | | |
 | Прихована незадоволеність | — | 10 | — | 10 | 20 |
+| Крос-категорійні (mixed intent) | 3 | 3 | 2 | 2 | 10 |
+| Edge cases (other) | 3 | 3 | 2 | 2 | 10 |
 | Змішані категорії | 5 | 5 | 5 | 5 | 20 |
-| Edge cases (other) | 5 | 5 | 5 | 5 | 20 |
 | **Всього** | **30** | **35** | **25** | **30** | **120** |
+
+> **Варіативність:** Кожна категорія має 3 варіативні контексти (persona, situation, specific_detail), що забезпечує різноманітність діалогів навіть при однаковому seed.

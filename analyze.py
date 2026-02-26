@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 from config import (
     ANALYSIS_MODEL,
+    ANALYSIS_TEMPERATURE,
     CHECKPOINT_ANALYSIS_PATH,
     CHECKPOINT_INTERVAL,
     DEFAULT_OUTPUT_PATH,
@@ -28,10 +29,10 @@ from config import (
     OPENAI_API_KEY,
     REQUEST_TIMEOUT,
     SEED,
-    TEMPERATURE,
 )
 from models import AnalysisResult
 from prompts.analysis import SYSTEM_PROMPT, build_analysis_prompt
+from validation import validate_analysis_result
 
 logging.basicConfig(
     level=logging.INFO,
@@ -83,19 +84,7 @@ def clear_analysis_checkpoint() -> None:
 
 
 def load_dataset(input_path: str) -> dict[str, Any]:
-    """Load dataset from JSON file.
-
-    Args:
-        input_path: path to dialogs file
-
-    Returns:
-        Dictionary with dataset data
-
-    Raises:
-        FileNotFoundError: if file doesn't exist
-        json.JSONDecodeError: if JSON is malformed
-        ValueError: if structure is invalid
-    """
+    """Load dataset from JSON file."""
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"File not found: {input_path}")
 
@@ -108,19 +97,31 @@ def load_dataset(input_path: str) -> dict[str, Any]:
     return data
 
 
+def _build_analysis_request(chat: dict[str, Any]) -> dict[str, Any]:
+    """Build the OpenAI API request parameters for dialog analysis."""
+    user_prompt = build_analysis_prompt(chat["messages"])
+    return {
+        "model": ANALYSIS_MODEL,
+        "temperature": ANALYSIS_TEMPERATURE,
+        "seed": SEED,
+        "max_tokens": 500,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+
 def parse_analysis_response(raw_response: str, chat_id: str) -> dict[str, Any]:
-    """Parse and validate API response with analysis.
+    """Parse, validate, and apply rule-based corrections to API response.
 
     Args:
         raw_response: JSON string from API
         chat_id: chat ID for binding
 
     Returns:
-        Dictionary with analysis results
-
-    Raises:
-        ValueError: if response is invalid
-        json.JSONDecodeError: if JSON is malformed
+        Dictionary with analysis results (post-validated)
     """
     data: dict[str, Any] = json.loads(raw_response)
 
@@ -139,10 +140,16 @@ def parse_analysis_response(raw_response: str, chat_id: str) -> dict[str, Any]:
         "summary": data["summary"],
     }
 
-    # Pydantic validation
-    AnalysisResult(**result_data)
+    # Rule-based post-processing validation
+    corrected_data, warnings = validate_analysis_result(result_data)
+    if warnings:
+        logger.info(f"Validation corrections for {chat_id}: {warnings}")
+    corrected_data["validation_warnings"] = [str(w) for w in warnings]
 
-    return result_data
+    # Pydantic validation after corrections
+    AnalysisResult(**corrected_data)
+
+    return corrected_data
 
 
 def analyze_single_chat(
@@ -150,39 +157,17 @@ def analyze_single_chat(
     chat: dict[str, Any],
     max_retries: int = 3,
 ) -> dict[str, Any]:
-    """Analyze a single dialog via OpenAI API (synchronous).
-
-    Args:
-        client: OpenAI client instance
-        chat: dialog data
-        max_retries: maximum retry attempts on errors
-
-    Returns:
-        Dictionary with analysis results
-    """
+    """Analyze a single dialog via OpenAI API (synchronous)."""
     chat_id: str = chat["id"]
-    user_prompt = build_analysis_prompt(chat["messages"])
+    request_params = _build_analysis_request(chat)
 
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model=ANALYSIS_MODEL,
-                temperature=TEMPERATURE,
-                seed=SEED,
-                max_tokens=500,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-
+            response = client.chat.completions.create(**request_params)
             raw = response.choices[0].message.content
             if raw is None:
                 raise ValueError("API returned empty response")
-            result = parse_analysis_response(raw, chat_id)
-            return result
-
+            return parse_analysis_response(raw, chat_id)
         except RateLimitError:
             wait = 2 ** attempt
             logger.warning(f"Rate limit, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
@@ -206,41 +191,18 @@ async def async_analyze_single_chat(
     semaphore: asyncio.Semaphore,
     max_retries: int = 3,
 ) -> dict[str, Any]:
-    """Analyze a single dialog via OpenAI API (asynchronous).
-
-    Args:
-        client: AsyncOpenAI client instance
-        chat: dialog data
-        semaphore: semaphore for concurrency control
-        max_retries: maximum retry attempts on errors
-
-    Returns:
-        Dictionary with analysis results
-    """
+    """Analyze a single dialog via OpenAI API (asynchronous)."""
     chat_id: str = chat["id"]
-    user_prompt = build_analysis_prompt(chat["messages"])
+    request_params = _build_analysis_request(chat)
 
     for attempt in range(max_retries):
         try:
             async with semaphore:
-                response = await client.chat.completions.create(
-                    model=ANALYSIS_MODEL,
-                    temperature=TEMPERATURE,
-                    seed=SEED,
-                    max_tokens=500,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                )
-
+                response = await client.chat.completions.create(**request_params)
             raw = response.choices[0].message.content
             if raw is None:
                 raise ValueError("API returned empty response")
-            result = parse_analysis_response(raw, chat_id)
-            return result
-
+            return parse_analysis_response(raw, chat_id)
         except RateLimitError:
             wait = 2 ** attempt
             logger.warning(f"Rate limit for {chat_id}, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
@@ -263,13 +225,7 @@ def save_results(
     output_path: str,
     model: str = ANALYSIS_MODEL,
 ) -> None:
-    """Save analysis results to JSON file.
-
-    Args:
-        results: list of analysis results
-        output_path: output file path
-        model: model name used
-    """
+    """Save analysis results to JSON file."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     output: dict[str, Any] = {
@@ -320,6 +276,9 @@ def print_summary(results: list[dict[str, Any]]) -> None:
 
     chats_with_mistakes: int = sum(1 for r in results if r["agent_mistakes"])
 
+    # Validation corrections
+    chats_with_corrections: int = sum(1 for r in results if r.get("validation_warnings"))
+
     print("\n" + "=" * 60)
     print("ANALYSIS SUMMARY")
     print("=" * 60)
@@ -344,6 +303,8 @@ def print_summary(results: list[dict[str, Any]]) -> None:
     if mistake_counts:
         for mistake, count in sorted(mistake_counts.items(), key=lambda x: -x[1]):
             print(f"  {mistake:25s}: {count}")
+
+    print(f"\nValidation corrections applied: {chats_with_corrections} / {total}")
 
     print("=" * 60 + "\n")
 

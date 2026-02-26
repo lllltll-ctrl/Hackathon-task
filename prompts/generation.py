@@ -25,12 +25,37 @@ Response format — ONLY valid JSON:
   ]
 }"""
 
+# Different behavioral patterns for hidden dissatisfaction (avoids tautological detection)
+_HIDDEN_DISSATISFACTION_PATTERNS: list[str] = [
+    (
+        "IMPORTANT — Hidden dissatisfaction: the client is formally polite and accepts "
+        "the agent's response, but their actual problem remains unresolved. The client "
+        "gradually disengages from the conversation, giving shorter responses and not "
+        "pushing further. They leave without a real solution but avoid confrontation."
+    ),
+    (
+        "IMPORTANT — Hidden dissatisfaction: the client appears agreeable on the surface "
+        "but subtly signals frustration through tone shifts — moving from detailed "
+        "explanations to brief, resigned replies. They may redirect blame to themselves "
+        "('maybe I'm doing something wrong') when actually the support was inadequate."
+    ),
+    (
+        "IMPORTANT — Hidden dissatisfaction: the client maintains professional courtesy "
+        "throughout but the dialog ends with them having to find a workaround on their "
+        "own. They may express understanding of 'limitations' or 'policies' while clearly "
+        "not having their need met. Their final messages carry a tone of polite resignation."
+    ),
+]
+
 
 def build_generation_prompt(
     category: str,
     case_type: str,
     has_hidden_dissatisfaction: bool,
     agent_mistakes: list[str],
+    variation_index: int = 0,
+    variation_context: dict[str, str] | None = None,
+    mixed_intent: dict[str, str] | None = None,
 ) -> str:
     """Build a prompt for generating a single dialog.
 
@@ -39,6 +64,9 @@ def build_generation_prompt(
         case_type: case type key (e.g. 'successful')
         has_hidden_dissatisfaction: whether to include hidden dissatisfaction
         agent_mistakes: list of agent mistake keys to include
+        variation_index: index for selecting variation-specific context
+        variation_context: persona/situation details for diversity
+        mixed_intent: cross-category scenario descriptor
 
     Returns:
         Formatted generation prompt string
@@ -53,6 +81,27 @@ def build_generation_prompt(
         f"Request category: {category_desc}",
         f"Case type: {case_type_desc}",
     ]
+
+    # Inject variation context for diversity
+    if variation_context:
+        prompt_parts.append("")
+        prompt_parts.append(f"Client profile: {variation_context['persona']}.")
+        prompt_parts.append(f"Specific situation: {variation_context['specific_detail']}.")
+        prompt_parts.append(f"Context: {variation_context['situation']}.")
+
+    # Mixed intent — cross-category scenario
+    if mixed_intent:
+        apparent_desc = CATEGORY_DESCRIPTIONS.get(
+            mixed_intent["apparent_category"], mixed_intent["apparent_category"]
+        )
+        prompt_parts.append("")
+        prompt_parts.append(
+            f"IMPORTANT — Mixed intent scenario: The client initially presents their problem "
+            f"as a {apparent_desc} issue. "
+            f"However, during the conversation it becomes clear that the actual issue is: "
+            f"{mixed_intent['description']}. "
+            f"The agent should {'correctly identify the real issue and address it' if case_type == 'successful' else 'struggle to identify or properly address the real underlying issue'}."
+        )
 
     # Additional instructions depending on case type
     if case_type == "successful" and not has_hidden_dissatisfaction:
@@ -78,15 +127,8 @@ def build_generation_prompt(
 
     if has_hidden_dissatisfaction:
         prompt_parts.append("")
-        prompt_parts.append(
-            "IMPORTANT — Hidden dissatisfaction: the client must be formally polite "
-            "(saying 'thank you', 'okay', 'I understand'), but the problem is NOT actually resolved. "
-            "The client may:\n"
-            "- Say 'Alright, I'll try to figure it out myself' (gave up)\n"
-            "- Thank for information that didn't actually help\n"
-            "- Agree with the response with slight sarcasm or disappointment\n"
-            "- End the dialog without receiving a real solution"
-        )
+        pattern = _HIDDEN_DISSATISFACTION_PATTERNS[variation_index % len(_HIDDEN_DISSATISFACTION_PATTERNS)]
+        prompt_parts.append(pattern)
 
     if agent_mistakes:
         prompt_parts.append("")

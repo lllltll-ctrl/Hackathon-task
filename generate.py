@@ -24,11 +24,12 @@ from config import (
     DEFAULT_CHAT_COUNT,
     DEFAULT_OUTPUT_PATH,
     GENERATION_MODEL,
+    GENERATION_TEMPERATURE,
     OPENAI_API_KEY,
     REQUEST_TIMEOUT,
     SCENARIO_MATRIX,
     SEED,
-    TEMPERATURE,
+    VARIATION_CONTEXTS,
 )
 from prompts.generation import SYSTEM_PROMPT, build_generation_prompt
 
@@ -125,55 +126,64 @@ def parse_chat_response(raw_response: str) -> list[dict[str, str]]:
     return messages
 
 
+def _build_generation_request(scenario: dict[str, Any]) -> dict[str, Any]:
+    """Build the OpenAI API request parameters for dialog generation."""
+    variation_index = scenario.get("variation_index", 0)
+    contexts = VARIATION_CONTEXTS.get(scenario["category"], [])
+    variation_context = contexts[variation_index % len(contexts)] if contexts else None
+
+    user_prompt = build_generation_prompt(
+        category=scenario["category"],
+        case_type=scenario["case_type"],
+        has_hidden_dissatisfaction=scenario.get("has_hidden_dissatisfaction", False),
+        agent_mistakes=scenario.get("intended_agent_mistakes", []),
+        variation_index=variation_index,
+        variation_context=variation_context,
+        mixed_intent=scenario.get("mixed_intent"),
+    )
+
+    return {
+        "model": GENERATION_MODEL,
+        "temperature": GENERATION_TEMPERATURE,
+        "seed": SEED,
+        "max_tokens": 2000,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+
+def _process_generation_response(
+    raw: str | None, scenario: dict[str, Any], chat_id: str,
+) -> dict[str, Any]:
+    """Process the API response into a chat dict."""
+    if raw is None:
+        raise ValueError("API returned empty response")
+    messages = parse_chat_response(raw)
+    return {
+        "id": chat_id,
+        "scenario": scenario,
+        "messages": messages,
+    }
+
+
 def generate_single_chat(
     client: OpenAI,
     scenario: dict[str, Any],
     chat_id: str,
     max_retries: int = 3,
 ) -> dict[str, Any]:
-    """Generate a single dialog via OpenAI API (synchronous).
-
-    Args:
-        client: OpenAI client instance
-        scenario: generation scenario
-        chat_id: unique chat ID
-        max_retries: maximum retry attempts on errors
-
-    Returns:
-        Dictionary with chat data (id, scenario, messages)
-    """
-    user_prompt = build_generation_prompt(
-        category=scenario["category"],
-        case_type=scenario["case_type"],
-        has_hidden_dissatisfaction=scenario.get("has_hidden_dissatisfaction", False),
-        agent_mistakes=scenario.get("intended_agent_mistakes", []),
-    )
+    """Generate a single dialog via OpenAI API (synchronous)."""
+    request_params = _build_generation_request(scenario)
 
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model=GENERATION_MODEL,
-                temperature=TEMPERATURE,
-                seed=SEED,
-                max_tokens=2000,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
+            response = client.chat.completions.create(**request_params)
+            return _process_generation_response(
+                response.choices[0].message.content, scenario, chat_id,
             )
-
-            raw = response.choices[0].message.content
-            if raw is None:
-                raise ValueError("API returned empty response")
-            messages = parse_chat_response(raw)
-
-            return {
-                "id": chat_id,
-                "scenario": scenario,
-                "messages": messages,
-            }
-
         except RateLimitError:
             wait = 2 ** attempt
             logger.warning(f"Rate limit, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
@@ -198,51 +208,16 @@ async def async_generate_single_chat(
     semaphore: asyncio.Semaphore,
     max_retries: int = 3,
 ) -> dict[str, Any]:
-    """Generate a single dialog via OpenAI API (asynchronous).
-
-    Args:
-        client: AsyncOpenAI client instance
-        scenario: generation scenario
-        chat_id: unique chat ID
-        semaphore: semaphore for concurrency control
-        max_retries: maximum retry attempts on errors
-
-    Returns:
-        Dictionary with chat data (id, scenario, messages)
-    """
-    user_prompt = build_generation_prompt(
-        category=scenario["category"],
-        case_type=scenario["case_type"],
-        has_hidden_dissatisfaction=scenario.get("has_hidden_dissatisfaction", False),
-        agent_mistakes=scenario.get("intended_agent_mistakes", []),
-    )
+    """Generate a single dialog via OpenAI API (asynchronous)."""
+    request_params = _build_generation_request(scenario)
 
     for attempt in range(max_retries):
         try:
             async with semaphore:
-                response = await client.chat.completions.create(
-                    model=GENERATION_MODEL,
-                    temperature=TEMPERATURE,
-                    seed=SEED,
-                    max_tokens=2000,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                )
-
-            raw = response.choices[0].message.content
-            if raw is None:
-                raise ValueError("API returned empty response")
-            messages = parse_chat_response(raw)
-
-            return {
-                "id": chat_id,
-                "scenario": scenario,
-                "messages": messages,
-            }
-
+                response = await client.chat.completions.create(**request_params)
+            return _process_generation_response(
+                response.choices[0].message.content, scenario, chat_id,
+            )
         except RateLimitError:
             wait = 2 ** attempt
             logger.warning(f"Rate limit for {chat_id}, waiting {wait}s (attempt {attempt + 1}/{max_retries})")

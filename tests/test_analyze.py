@@ -146,10 +146,16 @@ class TestAnalyzeSingleChat:
         result = analyze_single_chat(mock_client, sample_chat)
         assert result["chat_id"] == sample_chat["id"]
 
-    def test_api_called_with_temperature_zero(self, mock_client, sample_chat):
+    def test_api_called_with_analysis_temperature(self, mock_client, sample_chat):
+        from config import ANALYSIS_TEMPERATURE
         analyze_single_chat(mock_client, sample_chat)
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        assert call_kwargs.get("temperature") == 0
+        assert call_kwargs.get("temperature") == ANALYSIS_TEMPERATURE
+
+    def test_result_has_validation_warnings(self, mock_client, sample_chat):
+        result = analyze_single_chat(mock_client, sample_chat)
+        assert "validation_warnings" in result
+        assert isinstance(result["validation_warnings"], list)
 
     def test_api_receives_dialogue_content(self, mock_client, sample_chat):
         analyze_single_chat(mock_client, sample_chat)

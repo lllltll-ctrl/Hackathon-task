@@ -46,12 +46,21 @@ class Message(BaseModel):
     text: str = Field(min_length=1)
 
 
+class MixedIntent(BaseModel):
+    """Cross-category intent descriptor for mixed-intent scenarios."""
+    apparent_category: Category
+    actual_category: Category
+    description: str
+
+
 class Scenario(BaseModel):
     """Scenario for dialog generation."""
     category: Category
     case_type: CaseType
     has_hidden_dissatisfaction: bool = False
     intended_agent_mistakes: list[AgentMistake] = Field(default_factory=list)
+    variation_index: int = 0
+    mixed_intent: MixedIntent | None = None
 
 
 class Chat(BaseModel):
@@ -69,3 +78,4 @@ class AnalysisResult(BaseModel):
     quality_score: int = Field(ge=1, le=5)
     agent_mistakes: list[AgentMistake]
     summary: str
+    validation_warnings: list[str] = Field(default_factory=list)

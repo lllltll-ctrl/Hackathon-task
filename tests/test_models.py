@@ -10,6 +10,7 @@ from models import (
     Category,
     Chat,
     Message,
+    MixedIntent,
     Satisfaction,
     Scenario,
 )
@@ -144,6 +145,51 @@ class TestScenario:
         scenario = Scenario(category="payment_issue", case_type="successful")
         assert scenario.has_hidden_dissatisfaction is False
         assert scenario.intended_agent_mistakes == []
+        assert scenario.variation_index == 0
+        assert scenario.mixed_intent is None
+
+    def test_scenario_with_variation_index(self):
+        scenario = Scenario(
+            category="payment_issue",
+            case_type="successful",
+            variation_index=2,
+        )
+        assert scenario.variation_index == 2
+
+    def test_scenario_with_mixed_intent(self):
+        scenario = Scenario(
+            category="technical_error",
+            case_type="problematic",
+            mixed_intent={
+                "apparent_category": "payment_issue",
+                "actual_category": "technical_error",
+                "description": "Test mixed intent",
+            },
+        )
+        assert scenario.mixed_intent is not None
+        assert scenario.mixed_intent.apparent_category == Category.PAYMENT_ISSUE
+        assert scenario.mixed_intent.actual_category == Category.TECHNICAL_ERROR
+
+
+# ── MixedIntent ─────────────────────────────────────────────────────
+
+class TestMixedIntent:
+    def test_valid_mixed_intent(self):
+        mi = MixedIntent(
+            apparent_category="payment_issue",
+            actual_category="technical_error",
+            description="Test",
+        )
+        assert mi.apparent_category == Category.PAYMENT_ISSUE
+        assert mi.actual_category == Category.TECHNICAL_ERROR
+
+    def test_invalid_category_rejected(self):
+        with pytest.raises(ValidationError):
+            MixedIntent(
+                apparent_category="invalid",
+                actual_category="payment_issue",
+                description="Test",
+            )
 
 
 # ── Chat ─────────────────────────────────────────────────────────────
@@ -314,3 +360,26 @@ class TestAnalysisResult:
                 agent_mistakes=["nonexistent_mistake"],
                 summary="Тест",
             )
+
+    def test_validation_warnings_default_empty(self):
+        result = AnalysisResult(
+            chat_id="test",
+            intent="payment_issue",
+            satisfaction="satisfied",
+            quality_score=5,
+            agent_mistakes=[],
+            summary="Тест",
+        )
+        assert result.validation_warnings == []
+
+    def test_validation_warnings_accepted(self):
+        result = AnalysisResult(
+            chat_id="test",
+            intent="payment_issue",
+            satisfaction="unsatisfied",
+            quality_score=2,
+            agent_mistakes=["rude_tone"],
+            summary="Тест",
+            validation_warnings=["rude_tone_but_score_above_2"],
+        )
+        assert len(result.validation_warnings) == 1

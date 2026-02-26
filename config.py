@@ -18,7 +18,8 @@ GENERATION_MODEL: str = "gpt-4o-mini"
 ANALYSIS_MODEL: str = "gpt-4o"
 
 # Parameters for determinism
-TEMPERATURE: int = 0
+GENERATION_TEMPERATURE: float = 0.3  # Slight variation for dialog diversity
+ANALYSIS_TEMPERATURE: int = 0        # Strict determinism for analysis
 SEED: int = 42
 
 # Timeout for API requests (seconds)
@@ -88,6 +89,143 @@ MISTAKE_DESCRIPTIONS: dict[str, str] = {
     "unnecessary_escalation": "Unnecessary escalation — agent redirects to another specialist without attempting to solve it themselves",
 }
 
+# ── Variation contexts for dialog diversity ──────────────────────────
+
+VARIATION_CONTEXTS: dict[str, list[dict[str, str]]] = {
+    "payment_issue": [
+        {
+            "persona": "a startup founder managing a team of 12 on the Pro plan",
+            "specific_detail": "recurring monthly payment of $180 keeps failing with error code E-4012",
+            "situation": "has been trying to pay for 3 days and team members are losing access to projects",
+        },
+        {
+            "persona": "a freelance designer who just upgraded from Free to Pro",
+            "specific_detail": "first payment went through twice, charged $30 instead of $15",
+            "situation": "noticed the double charge on bank statement this morning",
+        },
+        {
+            "persona": "an IT admin at a mid-size company on the Enterprise plan",
+            "specific_detail": "annual invoice payment of $5,400 shows as pending for 2 weeks",
+            "situation": "finance department is asking for payment confirmation for quarterly audit",
+        },
+    ],
+    "technical_error": [
+        {
+            "persona": "a project manager who relies on dashboards for daily standups",
+            "specific_detail": "the Kanban board shows error 500 when dragging cards between columns",
+            "situation": "team standup is in 30 minutes and the board is completely unusable",
+        },
+        {
+            "persona": "a developer integrating CX-Ray API into their CI/CD pipeline",
+            "specific_detail": "the REST API /projects/{id}/tasks endpoint returns 403 despite valid token",
+            "situation": "deployment pipeline has been broken since last night, blocking releases",
+        },
+        {
+            "persona": "a team lead who uses time tracking for client billing",
+            "specific_detail": "time tracking export to CSV generates empty files since the last platform update",
+            "situation": "monthly client invoice is due tomorrow and billing data cannot be exported",
+        },
+    ],
+    "account_access": [
+        {
+            "persona": "a new employee onboarded to the company's CX-Ray workspace last week",
+            "specific_detail": "SSO login redirects to a blank page, no error message shown",
+            "situation": "cannot access any team projects and first sprint planning is today",
+        },
+        {
+            "persona": "a remote contractor who uses CX-Ray across multiple client workspaces",
+            "specific_detail": "2FA codes from authenticator app are rejected as invalid after phone reset",
+            "situation": "locked out of 3 client workspaces with urgent deliverables due this week",
+        },
+        {
+            "persona": "a department head who hasn't logged in for 2 months during leave",
+            "specific_detail": "account shows 'suspended due to inactivity' with no reactivation option",
+            "situation": "returned from leave and needs immediate access to ongoing project data",
+        },
+    ],
+    "tariff_question": [
+        {
+            "persona": "a CTO evaluating CX-Ray for company-wide adoption (200+ employees)",
+            "specific_detail": "wants to understand Enterprise vs Pro feature differences for large teams",
+            "situation": "preparing a comparison report for the board meeting next week",
+        },
+        {
+            "persona": "a small agency owner currently on the Free plan with 4 team members",
+            "specific_detail": "considering Pro plan but unsure about API access limits and storage quotas",
+            "situation": "client workload is growing and Free plan limits are becoming a bottleneck",
+        },
+        {
+            "persona": "a university professor using CX-Ray for student group projects",
+            "specific_detail": "asking about educational discounts and whether student accounts count toward user limits",
+            "situation": "new semester starts in 2 weeks and needs to set up 30 student accounts",
+        },
+    ],
+    "refund_request": [
+        {
+            "persona": "a solo entrepreneur who signed up for Pro but found the tool too complex",
+            "specific_detail": "used the service for only 2 days out of the monthly billing cycle",
+            "situation": "already switched to a competitor and wants a full refund of $15",
+        },
+        {
+            "persona": "a marketing manager whose team was auto-renewed without approval",
+            "specific_detail": "annual plan auto-renewed for $2,160 despite cancellation email sent 3 weeks ago",
+            "situation": "budget for the tool was reallocated and finance is demanding the charge be reversed",
+        },
+        {
+            "persona": "a developer who was charged for an Enterprise trial that was supposed to be free",
+            "specific_detail": "credit card was charged $499 for Enterprise features during what was marketed as a 14-day free trial",
+            "situation": "trial signup page showed 'no credit card required' but card was charged anyway",
+        },
+    ],
+    "other": [
+        {
+            "persona": "a product manager who has been using CX-Ray for 2 years",
+            "specific_detail": "suggesting a dark mode feature and asking about the product roadmap",
+            "situation": "team has been requesting dark mode for months and wants to know if it's planned",
+        },
+        {
+            "persona": "a data analyst who needs to generate compliance reports from CX-Ray data",
+            "specific_detail": "asking about GDPR data export capabilities and data retention policies",
+            "situation": "company audit is coming up and needs documentation of data handling practices",
+        },
+        {
+            "persona": "a frustrated long-time customer considering cancellation",
+            "specific_detail": "general complaint about declining service quality and slow feature updates",
+            "situation": "competitor launched similar features at a lower price point last month",
+        },
+    ],
+}
+
+# ── Mixed intent scenarios (cross-category) ──────────────────────────
+
+MIXED_INTENT_SCENARIOS: list[dict[str, Any]] = [
+    {
+        "apparent_category": "payment_issue",
+        "actual_category": "technical_error",
+        "description": "Client reports payment failure, but the root cause is a UI bug in the checkout flow that corrupts the payment form",
+    },
+    {
+        "apparent_category": "technical_error",
+        "actual_category": "account_access",
+        "description": "Client reports 'error loading dashboard' but actually their session expired due to SSO token invalidation",
+    },
+    {
+        "apparent_category": "tariff_question",
+        "actual_category": "refund_request",
+        "description": "Client asks about plan differences but actually wants a refund because they were auto-upgraded to a higher plan without consent",
+    },
+    {
+        "apparent_category": "account_access",
+        "actual_category": "payment_issue",
+        "description": "Client cannot log in, but it turns out the account was suspended because their payment method expired",
+    },
+    {
+        "apparent_category": "refund_request",
+        "actual_category": "tariff_question",
+        "description": "Client demands a refund but after discussion realizes they actually just want to downgrade their plan and keep using the service",
+    },
+]
+
 
 def _build_scenario_matrix() -> list[dict[str, Any]]:
     """Build the full scenario matrix for generating 120 dialogs.
@@ -112,6 +250,7 @@ def _build_scenario_matrix() -> list[dict[str, Any]]:
                     "case_type": case_type,
                     "has_hidden_dissatisfaction": False,
                     "intended_agent_mistakes": [],
+                    "variation_index": variation,
                 }
                 # For agent_error add specific mistakes
                 if case_type == "agent_error":
@@ -145,12 +284,13 @@ def _build_scenario_matrix() -> list[dict[str, Any]]:
         ("tariff_question", "conflict", []),
         ("refund_request", "conflict", []),
     ]
-    for category, case_type, mistakes in hidden_configs:
+    for i, (category, case_type, mistakes) in enumerate(hidden_configs):
         scenarios.append({
             "category": category,
             "case_type": case_type,
             "has_hidden_dissatisfaction": True,
             "intended_agent_mistakes": mistakes,
+            "variation_index": i % 3,
         })
 
     # ── Block 3: Additional agent mistakes (20 cases) ──
@@ -168,21 +308,36 @@ def _build_scenario_matrix() -> list[dict[str, Any]]:
                 "case_type": "agent_error",
                 "has_hidden_dissatisfaction": i % 2 == 0,
                 "intended_agent_mistakes": combo,
+                "variation_index": i % 3,
             })
 
-    # ── Block 4: Edge cases with "other" category (20 cases) ──
-    for case_type in CASE_TYPES:
-        for variation in range(5):
-            scenario = {
-                "category": "other",
+    # ── Block 4: Mixed intent + "other" edge cases (20 cases) ──
+    # First 10: cross-category mixed intent scenarios
+    for i, mixed in enumerate(MIXED_INTENT_SCENARIOS):
+        for case_type in ["problematic", "successful"]:
+            scenarios.append({
+                "category": mixed["actual_category"],
                 "case_type": case_type,
-                "has_hidden_dissatisfaction": variation % 3 == 0,
+                "has_hidden_dissatisfaction": i % 2 == 0,
                 "intended_agent_mistakes": [],
-            }
-            if case_type == "agent_error":
-                mistake_idx = variation % len(AGENT_MISTAKES)
-                scenario["intended_agent_mistakes"] = [AGENT_MISTAKES[mistake_idx]]
-            scenarios.append(scenario)
+                "variation_index": i % 3,
+                "mixed_intent": mixed,
+            })
+    # Remaining 10: "other" category edge cases
+    other_case_types = CASE_TYPES + CASE_TYPES + ["successful", "problematic"]
+    for j in range(10):
+        ct = other_case_types[j % len(other_case_types)]
+        scenario = {
+            "category": "other",
+            "case_type": ct,
+            "has_hidden_dissatisfaction": j % 3 == 0,
+            "intended_agent_mistakes": [],
+            "variation_index": j % 3,
+        }
+        if ct == "agent_error":
+            mistake_idx = j % len(AGENT_MISTAKES)
+            scenario["intended_agent_mistakes"] = [AGENT_MISTAKES[mistake_idx]]
+        scenarios.append(scenario)
 
     return scenarios
 
