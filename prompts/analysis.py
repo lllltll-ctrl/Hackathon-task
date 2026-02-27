@@ -86,7 +86,12 @@ Determine the following parameters:
 5. **summary** — brief description of the situation (1-2 sentences in English)
 
 6. **confidence** — your confidence in the satisfaction assessment (0.0 to 1.0).
-   Use lower values (0.3-0.6) when the client's true satisfaction is ambiguous (e.g., polite but possibly dissatisfied).
+   Calibration guide — be HONEST, do not default to high values:
+   - 0.9-1.0 — satisfaction is obvious and unambiguous (client explicitly states it)
+   - 0.7-0.8 — likely correct but some ambiguity exists
+   - 0.5-0.6 — genuinely uncertain, could go either way (e.g., polite client but unresolved issue)
+   - 0.3-0.4 — low confidence, satisfaction is very hard to determine
+   IMPORTANT: If the client is polite but the problem may not be fully resolved, confidence should be 0.5-0.7, NOT 0.9+.
 
 Response — ONLY valid JSON:
 {{
