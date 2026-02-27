@@ -75,8 +75,13 @@ Determine the following parameters:
    - rude_tone — rude, dismissive, or unprofessional tone
    - no_resolution — dialog ended without resolving the problem
    - unnecessary_escalation — unnecessary escalation to another specialist
-   - slow_response — agent delays unreasonably, asks client to wait multiple times without action
+   - slow_response — agent takes too long, keeps saying "one moment please", "just a second", "let me check" multiple times (2+) without actual progress or resolution
    - generic_response — agent gives template/FAQ answers instead of addressing the specific situation
+
+   Examples of slow_response:
+   - Agent says "one moment please" 3+ times without solving
+   - Agent repeatedly asks to wait without giving a timeline
+   - Agent delays action while claiming to "check" multiple times
 
 5. **summary** — brief description of the situation (1-2 sentences in English)
 
