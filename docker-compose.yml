@@ -19,6 +19,14 @@ services:
       - ./data:/app/data
       - ./results:/app/results
 
+  # Evaluate analysis against ground truth
+  evaluate:
+    build: .
+    command: ["evaluate.py", "--chats", "data/chats.json", "--analysis", "results/analysis.json", "--output", "results/evaluation.json"]
+    volumes:
+      - ./data:/app/data
+      - ./results:/app/results
+
   # Run tests
   test:
     build: .

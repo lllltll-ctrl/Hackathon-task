@@ -202,3 +202,101 @@ class TestValidationWarningRepr:
         s = repr(w)
         assert "satisfaction" in s
         assert "anomaly" in s
+
+
+class TestRule6HighScoreButUnsatisfied:
+    """Rule 6: quality_score >= 4 and unsatisfied -> cap at 3."""
+
+    def test_score_5_unsatisfied_capped_to_3(self):
+        result = {
+            "chat_id": "test",
+            "intent": "payment_issue",
+            "satisfaction": "unsatisfied",
+            "quality_score": 5,
+            "agent_mistakes": [],
+            "summary": "Test",
+        }
+        corrected, warnings = validate_analysis_result(result)
+        assert corrected["quality_score"] == 3
+        assert any(w.rule == "high_score_but_unsatisfied" for w in warnings)
+
+    def test_score_4_unsatisfied_capped_to_3(self):
+        result = {
+            "chat_id": "test",
+            "intent": "payment_issue",
+            "satisfaction": "unsatisfied",
+            "quality_score": 4,
+            "agent_mistakes": [],
+            "summary": "Test",
+        }
+        corrected, warnings = validate_analysis_result(result)
+        assert corrected["quality_score"] == 3
+
+    def test_score_3_unsatisfied_not_changed(self):
+        result = {
+            "chat_id": "test",
+            "intent": "payment_issue",
+            "satisfaction": "unsatisfied",
+            "quality_score": 3,
+            "agent_mistakes": [],
+            "summary": "Test",
+        }
+        corrected, warnings = validate_analysis_result(result)
+        assert corrected["quality_score"] == 3
+        assert not any(w.rule == "high_score_but_unsatisfied" for w in warnings)
+
+    def test_high_score_neutral_not_affected(self):
+        result = {
+            "chat_id": "test",
+            "intent": "payment_issue",
+            "satisfaction": "neutral",
+            "quality_score": 5,
+            "agent_mistakes": [],
+            "summary": "Test",
+        }
+        corrected, warnings = validate_analysis_result(result)
+        assert corrected["quality_score"] == 5
+
+
+class TestRule7MultipleMistakesCritical:
+    """Rule 7: 3+ mistakes -> cap quality_score at 1."""
+
+    def test_three_mistakes_caps_at_1(self):
+        result = {
+            "chat_id": "test",
+            "intent": "payment_issue",
+            "satisfaction": "unsatisfied",
+            "quality_score": 3,
+            "agent_mistakes": ["rude_tone", "no_resolution", "ignored_question"],
+            "summary": "Test",
+        }
+        corrected, warnings = validate_analysis_result(result)
+        assert corrected["quality_score"] == 1
+        assert any(w.rule == "multiple_mistakes_critical" for w in warnings)
+
+    def test_two_mistakes_not_capped_at_1(self):
+        result = {
+            "chat_id": "test",
+            "intent": "payment_issue",
+            "satisfaction": "unsatisfied",
+            "quality_score": 2,
+            "agent_mistakes": ["rude_tone", "no_resolution"],
+            "summary": "Test",
+        }
+        corrected, warnings = validate_analysis_result(result)
+        # Rule 2 caps rude_tone at 2, so score stays 2
+        assert corrected["quality_score"] == 2
+        assert not any(w.rule == "multiple_mistakes_critical" for w in warnings)
+
+    def test_three_mistakes_score_already_1_no_warning(self):
+        result = {
+            "chat_id": "test",
+            "intent": "payment_issue",
+            "satisfaction": "unsatisfied",
+            "quality_score": 1,
+            "agent_mistakes": ["rude_tone", "no_resolution", "ignored_question"],
+            "summary": "Test",
+        }
+        corrected, warnings = validate_analysis_result(result)
+        assert corrected["quality_score"] == 1
+        assert not any(w.rule == "multiple_mistakes_critical" for w in warnings)

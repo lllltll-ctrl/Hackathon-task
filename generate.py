@@ -296,30 +296,37 @@ async def _async_main(args: argparse.Namespace) -> None:
     remaining_scenarios = scenarios[start_index:]
     pbar = tqdm(total=len(remaining_scenarios), desc="Generating dialogs", initial=0)
 
-    # Process in batches for checkpoint support
-    batch_size = args.concurrency * 2
-    for batch_start in range(0, len(remaining_scenarios), batch_size):
-        batch = remaining_scenarios[batch_start:batch_start + batch_size]
-        gather_tasks: list[Any] = []
-        for i, scenario in enumerate(batch):
-            idx = start_index + batch_start + i
-            chat_id = f"chat_{idx + 1:03d}"
-            gather_tasks.append(async_generate_single_chat(client, scenario, chat_id, semaphore))
-
-        gather_results = await asyncio.gather(*gather_tasks, return_exceptions=True)
-
-        for gather_result in gather_results:
-            if isinstance(gather_result, BaseException):
-                logger.error(f"Failed to generate chat: {gather_result}")
-                failed += 1
-            else:
-                chats.append(gather_result)
+    async def _generate_and_track(
+        scenario: dict[str, Any], chat_id: str,
+    ) -> dict[str, Any] | BaseException:
+        try:
+            result = await async_generate_single_chat(client, scenario, chat_id, semaphore)
+            return result
+        except BaseException as exc:
+            return exc
+        finally:
             pbar.update(1)
 
-        # Checkpoint after each batch
-        save_checkpoint(chats, failed)
+    # Launch all tasks at once — semaphore controls concurrency
+    tasks: list[Any] = []
+    for i, scenario in enumerate(remaining_scenarios):
+        idx = start_index + i
+        chat_id = f"chat_{idx + 1:03d}"
+        tasks.append(asyncio.ensure_future(_generate_and_track(scenario, chat_id)))
+
+    gather_results = await asyncio.gather(*tasks)
+
+    for gather_result in gather_results:
+        if isinstance(gather_result, BaseException):
+            logger.error(f"Failed to generate chat: {gather_result}")
+            failed += 1
+        else:
+            chats.append(gather_result)
 
     pbar.close()
+
+    # Save checkpoint with final results
+    save_checkpoint(chats, failed)
 
     # Successful completion - remove checkpoint
     clear_checkpoint()

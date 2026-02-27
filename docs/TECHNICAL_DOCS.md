@@ -2,7 +2,7 @@
 
 ## 1. Архітектура рішення
 
-Система складається з двох незалежних pipeline + Jupyter Notebook для аналізу:
+Система складається з трьох незалежних pipeline + Jupyter Notebook для аналізу:
 
 ```
 Pipeline 1: ГЕНЕРАЦІЯ
@@ -14,12 +14,20 @@ Pipeline 1: ГЕНЕРАЦІЯ
 Pipeline 2: АНАЛІЗ
 ┌────────────┐    ┌───────────────┐    ┌───────────┐    ┌────────────┐    ┌─────────────┐
 │ chats.json │───>│ Формування   │───>│ OpenAI    │───>│ Валідація  │───>│ Пост-       │───> analysis.json
-│            │    │ промпту      │    │ API Call  │    │ (Pydantic) │    │ валідація   │
-└────────────┘    └───────────────┘    └───────────┘    └────────────┘    │(validation. │
-                                                                          │ py — правила│
+│            │    │ промпту      │    │ API Call  │    │ (Pydantic) │    │ валідація   │    (+ground truth,
+└────────────┘    └───────────────┘    └───────────┘    └────────────┘    │(validation. │     confidence)
+                                                                          │ py — 7 правил│
                                                                           └─────────────┘
 
-Pipeline 3: NOTEBOOK АНАЛІЗ
+Pipeline 3: EVALUATION
+┌────────────┐    ┌───────────────┐    ┌─────────────────┐
+│ analysis.  │───>│ evaluate.py   │───>│ evaluation.json  │
+│ json       │    │ (порівняння   │    │ (метрики,        │
+│ chats.json │    │  з ground     │    │  грейдинг        │
+│            │    │  truth)       │    │  PASS/WARN/FAIL) │
+└────────────┘    └───────────────┘    └─────────────────┘
+
+Pipeline 4: NOTEBOOK АНАЛІЗ
 ┌────────────┐    ┌────────────────┐    ┌────────────────┐
 │ chats.json │───>│ analysis_      │───>│ Графіки,       │
 │ analysis.  │    │ notebook.ipynb │    │ аномалії,      │
@@ -34,11 +42,12 @@ Pipeline 3: NOTEBOOK АНАЛІЗ
 |-----------|-----------------|
 | `config.py` | Всі константи, параметри моделей, seed, категорії, матриця сценаріїв, варіативні контексти, крос-категорійні сценарії |
 | `models.py` | Pydantic v2 моделі для валідації всіх даних (включно з MixedIntent) |
-| `validation.py` | Правило-базова пост-валідація: детерміновані перевірки узгодженості результатів аналізу |
+| `validation.py` | Правило-базова пост-валідація: 7 детермінованих правил корекції після LLM-аналізу |
 | `prompts/generation.py` | Промпти для генерації з варіативними контекстами та паттернами поведінки |
-| `prompts/analysis.py` | Промпти для аналізу з семантичними індикаторами (без шаблонних фраз) |
+| `prompts/analysis.py` | Промпти для аналізу з семантичними індикаторами, confidence score, mixed intent detection |
 | `generate.py` | Оркестрація генерації: цикл по сценаріях, виклик API, checkpoint, збереження |
-| `analyze.py` | Оркестрація аналізу: читання чатів, виклик API, пост-валідація, checkpoint, збереження результатів |
+| `analyze.py` | Оркестрація аналізу: читання чатів, виклик API, пост-валідація, ground truth embedding, checkpoint, збереження |
+| `evaluate.py` | Ground truth evaluation: intent accuracy, hidden dissatisfaction detection, mistake precision/recall/F1, confidence calibration, threshold grading |
 | `analysis_notebook.ipynb` | Покроковий аналіз: графіки, розподіли, виявлення аномалій |
 
 ---
@@ -102,7 +111,7 @@ Pipeline 3: NOTEBOOK АНАЛІЗ
 
 Паттерн обирається через `variation_index % 3`, що забезпечує рівномірний розподіл.
 
-#### Помилки агента
+#### Помилки агента (7 типів)
 
 | Помилка | Ключ | Опис |
 |---------|------|------|
@@ -111,6 +120,8 @@ Pipeline 3: NOTEBOOK АНАЛІЗ
 | Грубий тон | `rude_tone` | Зневажливий, нетерплячий або непрофесійний тон |
 | Відсутність рішення | `no_resolution` | Діалог закінчився без вирішення проблеми |
 | Непотрібна ескалація | `unnecessary_escalation` | Агент перенаправив на іншого спеціаліста без потреби |
+| Повільна реакція | `slow_response` | Агент затягує відповідь, просить чекати без конкретних дій |
+| Шаблонна відповідь | `generic_response` | Агент дає FAQ/шаблонні відповіді замість конкретного рішення |
 
 ---
 
@@ -145,6 +156,7 @@ Each message has fields "role" (client/agent) and "text".
 - Для прихованої незадоволеності використовуються 3 різні поведінкові паттерни
   (відступлення, формальна ввічливість, перекладання відповідальності)
 - Для крос-категорійних сценаріїв — інструкції щодо apparent vs actual category
+- Повідомлення мають варіюватись по довжині (1-3 речення)
 
 ### 4.2 Промпт аналізу діалогу
 
@@ -157,9 +169,14 @@ SEMANTIC BEHAVIORAL INDICATORS:
 - The client's original problem was NOT resolved
 - The client stops asking follow-up questions and disengages
 - The client takes responsibility when the agent should have resolved it
+- "I'll figure it out myself" / "I'll try again later" = resignation, NOT satisfaction
 - Mismatch between initial urgency and brief, resigned closing messages
 - No concrete solution was provided (only FAQ/generic advice)
 If problem NOT resolved — satisfaction = "unsatisfied", even if client is polite.
+
+MIXED INTENT detection:
+If the client starts with one problem but the conversation reveals a
+different underlying issue, classify by the ACTUAL root cause.
 
 User prompt:
 Analyze the following dialog between a client and a support agent:
@@ -169,8 +186,9 @@ Determine:
 1. intent — request category (payment_issue, technical_error, etc.)
 2. satisfaction — REAL satisfaction level (satisfied/neutral/unsatisfied)
 3. quality_score — agent quality 1-5
-4. agent_mistakes — list of mistakes
+4. agent_mistakes — list of mistakes (7 types)
 5. summary — brief description (1-2 sentences in English)
+6. confidence — confidence in satisfaction assessment (0.0 to 1.0)
 
 Response — ONLY valid JSON.
 ```
@@ -195,7 +213,7 @@ Response — ONLY valid JSON.
 ### Аналіз — максимальна детермінованість
 1. **`temperature=0`** — модель завжди обирає найімовірніший токен
 2. **`seed=42`** — фіксований seed для API
-3. **Правило-базова пост-валідація** — детерміновані правила корекції після LLM-аналізу
+3. **Правило-базова пост-валідація** — 7 детермінованих правил корекції після LLM-аналізу
 
 ### Спільне
 1. **Фіксований порядок сценаріїв** — матриця генерується детерміновано з config.py
@@ -233,6 +251,8 @@ class AgentMistake(str, Enum):
     RUDE_TONE = "rude_tone"
     NO_RESOLUTION = "no_resolution"
     UNNECESSARY_ESCALATION = "unnecessary_escalation"
+    SLOW_RESPONSE = "slow_response"
+    GENERIC_RESPONSE = "generic_response"
 
 class Satisfaction(str, Enum):
     SATISFIED = "satisfied"
@@ -275,31 +295,72 @@ class AnalysisResult(BaseModel):
 
 ## 7. Правило-базова пост-валідація (validation.py)
 
-Після LLM-аналізу кожен результат проходить через детерміновані правила:
+Після LLM-аналізу кожен результат проходить через 7 детермінованих правил:
 
 | # | Правило | Дія |
 |---|---------|-----|
 | 1 | Є помилки агента → `quality_score ≤ 3` | Автокорекція score до 3 |
 | 2 | Є помилка `rude_tone` → `quality_score ≤ 2` | Автокорекція score до 2 |
-| 3 | Є помилка `no_resolution` → `satisfaction ≠ satisfied` | Корекція satisfaction на `neutral` |
+| 3 | Є помилка `no_resolution` → `satisfaction ≠ satisfied` | Корекція satisfaction на `unsatisfied` |
 | 4 | `satisfied` + `quality_score ≤ 2` | Попередження-аномалія (без корекції) |
 | 5 | Немає помилок + `quality_score ≤ 2` | Попередження-аномалія (без корекції) |
+| 6 | `unsatisfied` + `quality_score ≥ 4` | Автокорекція score до 3 |
+| 7 | 3+ помилок агента | Автокорекція score до 1 (критичний збій) |
 
-**Принцип:** Правила 1-3 автоматично коригують результат. Правила 4-5 лише додають `validation_warnings` без зміни даних (аномалії для ручної перевірки).
+**Принцип:** Правила 1-3, 6-7 автоматично коригують результат. Правила 4-5 лише додають `validation_warnings` без зміни даних (аномалії для ручної перевірки).
 
 Результат `validation_warnings` зберігається в кожному `AnalysisResult`:
 ```json
 {
   "validation_warnings": [
-    "corrected:quality_score 4→3 (mistakes present)",
-    "anomaly:satisfied_but_low_score (quality_score=2)"
+    "ValidationWarning(quality_score: mistakes_present_but_high_score, 4 -> 3)",
+    "ValidationWarning(satisfaction: satisfied_but_low_score, value=satisfied)"
   ]
 }
 ```
 
 ---
 
-## 8. Checkpointing
+## 8. Ground Truth Evaluation (evaluate.py)
+
+### 8.1 Метрики
+
+| Метрика | Опис |
+|---------|------|
+| **Intent Accuracy** | Точність визначення категорії з per-category breakdown та confusion matrix |
+| **Hidden Dissatisfaction Detection** | Detection rate + false positive rate для successful кейсів |
+| **Mistake Detection** | Precision, recall, F1 per mistake type |
+| **Quality Consistency** | Середній score по case_type (successful має бути вищий за agent_error) |
+| **Confidence Calibration** | Чи корелює confidence з правильністю (gap між correct/incorrect) |
+
+### 8.2 Автоматичний грейдинг
+
+| Метрика | PASS | WARN | FAIL |
+|---------|------|------|------|
+| Intent accuracy | >= 85% | >= 70% | < 70% |
+| Hidden dissatisfaction detection | >= 75% | >= 50% | < 50% |
+| Mistake Recall | >= 70% | >= 50% | < 50% |
+
+### 8.3 Ground Truth Embedding
+
+`analyze.py` автоматично вбудовує ground truth з кожного scenario в результат аналізу:
+```json
+{
+  "ground_truth": {
+    "expected_intent": "payment_issue",
+    "has_hidden_dissatisfaction": true,
+    "intended_agent_mistakes": ["no_resolution"],
+    "case_type": "problematic",
+    "mixed_intent": null
+  }
+}
+```
+
+Це дозволяє `evaluate.py` порівнювати LLM-аналіз з очікуваними значеннями без додаткових файлів.
+
+---
+
+## 9. Checkpointing
 
 Для великих датасетів система зберігає прогрес кожні N чатів (за замовчуванням 10):
 
@@ -317,7 +378,7 @@ class AnalysisResult(BaseModel):
 
 ---
 
-## 9. Обробка помилок
+## 10. Обробка помилок
 
 | Ситуація | Стратегія |
 |----------|-----------|
@@ -329,7 +390,7 @@ class AnalysisResult(BaseModel):
 
 ---
 
-## 10. CLI-інтерфейс
+## 11. CLI-інтерфейс
 
 ### generate.py
 ```bash
@@ -354,6 +415,17 @@ python analyze.py [--input data/chats.json] [--output results/analysis.json] [--
 | `--output` | Шлях до файлу результатів | `results/analysis.json` |
 | `--concurrency` | Кількість паралельних запитів до API | 1 |
 
+### evaluate.py
+```bash
+python evaluate.py [--chats data/chats.json] [--analysis results/analysis.json] [--output results/evaluation.json]
+```
+
+| Аргумент | Опис | За замовчуванням |
+|----------|------|-----------------|
+| `--chats` | Шлях до файлу діалогів (fallback ground truth) | `data/chats.json` |
+| `--analysis` | Шлях до файлу результатів аналізу | `results/analysis.json` |
+| `--output` | Шлях до файлу evaluation | `results/evaluation.json` |
+
 ### analysis_notebook.ipynb
 ```bash
 jupyter notebook analysis_notebook.ipynb
@@ -363,7 +435,7 @@ Notebook автоматично завантажує `data/chats.json` та `res
 
 ---
 
-## 11. Jupyter Notebook — аналіз та аномалії
+## 12. Jupyter Notebook — аналіз та аномалії
 
 `analysis_notebook.ipynb` містить 8 секцій:
 

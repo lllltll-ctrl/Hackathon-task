@@ -42,6 +42,8 @@ def validate_analysis_result(
     3. If 'no_resolution' in mistakes, satisfaction should NOT be 'satisfied'
     4. If satisfaction == 'satisfied' and quality_score <= 2, flag anomaly
     5. If no mistakes and quality_score <= 2, flag anomaly
+    6. If quality_score >= 4 and satisfaction == 'unsatisfied', cap score at 3
+    7. If 3 or more agent_mistakes, cap quality_score at 1
 
     Args:
         result: analysis result dict from LLM
@@ -96,5 +98,22 @@ def validate_analysis_result(
             "quality_score", "no_mistakes_but_low_score",
             score, None,
         ))
+
+    # Rule 6: high score but unsatisfied -> cap at 3
+    if score >= 4 and satisfaction == "unsatisfied":
+        warnings.append(ValidationWarning(
+            "quality_score", "high_score_but_unsatisfied",
+            score, 3,
+        ))
+        corrected["quality_score"] = 3
+        score = corrected["quality_score"]
+
+    # Rule 7: 3+ mistakes -> critical failure, cap at 1
+    if len(mistakes) >= 3 and score > 1:
+        warnings.append(ValidationWarning(
+            "quality_score", "multiple_mistakes_critical",
+            score, 1,
+        ))
+        corrected["quality_score"] = 1
 
     return corrected, warnings

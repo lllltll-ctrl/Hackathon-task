@@ -9,11 +9,12 @@
 - Генерація 120+ реалістичних діалогів з різними сценаріями
 - Визначення категорії звернення (intent)
 - Оцінка реальної задоволеності клієнта (включаючи приховану незадоволеність)
-- Оцінка якості роботи агента (шкала 1-5)
-- Виявлення помилок агента (ігнорування, неправильна інформація, грубість тощо)
+- Оцінка якості роботи агента (шкала 1-5) з confidence score
+- Виявлення 7 типів помилок агента (ігнорування, неправильна інформація, грубість, шаблонні відповіді тощо)
 - Контекстна варіативність діалогів (3 унікальні контексти на категорію — різні персони, ситуації, деталі)
 - Крос-категорійні сценарії (mixed intent — клієнт починає з одного питання, але справжня проблема в іншому)
-- Правило-базова пост-валідація результатів аналізу (детерміновані перевірки узгодженості)
+- Правило-базова пост-валідація результатів аналізу (7 детермінованих правил узгодженості)
+- Ground truth evaluation з автоматичним грейдингом (PASS/WARN/FAIL)
 - Близькі до детермінованих результати аналізу (temperature=0, фіксований seed), варіативна генерація (temperature=0.3)
 - Jupyter Notebook з покроковим аналізом датасету та виявленням аномалій
 
@@ -22,10 +23,11 @@
 ```
 ├── generate.py              # Генерація датасету діалогів
 ├── analyze.py               # Аналіз діалогів та оцінка якості
+├── evaluate.py              # Оцінка результатів проти ground truth
 ├── analysis_notebook.ipynb  # Покроковий аналіз та виявлення аномалій
 ├── config.py                # Конфігурація: моделі, параметри, сценарії
 ├── models.py                # Pydantic-моделі для валідації даних
-├── validation.py            # Правило-базова пост-валідація результатів аналізу
+├── validation.py            # Правило-базова пост-валідація (7 правил)
 ├── prompts/
 │   ├── generation.py        # Промпти для генерації діалогів
 │   └── analysis.py          # Промпти для аналізу діалогів
@@ -33,7 +35,8 @@
 ├── data/
 │   └── chats.json           # Згенерований датасет (створюється автоматично)
 ├── results/
-│   └── analysis.json        # Результати аналізу (створюється автоматично)
+│   ├── analysis.json        # Результати аналізу (створюється автоматично)
+│   └── evaluation.json      # Ground truth evaluation (створюється автоматично)
 ├── docs/                    # Документація проекту
 ├── requirements.txt         # Python-залежності
 ├── Dockerfile               # Контейнеризація
@@ -53,7 +56,7 @@ pip install -r requirements.txt
 
 ### Крок 2. Налаштування API-ключа
 
-Відкрийте файл `.env` у папці проекту та замініть `your-api-key-here` на ваш OpenAI API ключ:
+Створіть файл `.env` у папці проекту (за зразком `.env.example`):
 
 ```
 OPENAI_API_KEY=sk-ваш-ключ-тут
@@ -68,7 +71,7 @@ python generate.py
 ```
 
 Скрипт згенерує 120 діалогів англійською мовою і збереже їх у `data/chats.json`.
-Очікуваний час: ~8 хвилин. Вартість: ~$0.04.
+Очікуваний час: ~16 хвилин (sync) / ~3 хвилини (з `--concurrency 5`). Вартість: ~$0.04.
 
 Додаткові параметри (необов'язкові):
 - `--count 50` — згенерувати іншу кількість діалогів
@@ -83,20 +86,34 @@ python analyze.py
 ```
 
 Скрипт проаналізує всі діалоги з `data/chats.json` і збереже результати в `results/analysis.json`.
-Очікуваний час: ~10 хвилин. Вартість: ~$0.33.
+Очікуваний час: ~4 хвилини (sync) / ~1 хвилина (з `--concurrency 5`). Вартість: ~$0.33.
 
 Додаткові параметри (необов'язкові):
 - `--input my_chats.json` — проаналізувати інший файл
 - `--output my_results.json` — зберегти результати в інший файл
 - `--concurrency 5` — паралельні запити до API (пришвидшує аналіз у ~5x)
 
-### Крок 5. Запуск тестів
+### Крок 5. Оцінка результатів (evaluation)
+
+```bash
+python evaluate.py
+```
+
+Порівнює результати аналізу з ground truth зі сценаріїв і виводить:
+- Точність визначення intent (per-category breakdown)
+- Детекція прихованої незадоволеності (detection rate, false positives)
+- Виявлення помилок агента (precision, recall, F1)
+- Консистентність quality_score по типах кейсів
+- Калібрування confidence score
+- Автоматичний грейдинг: **PASS** / **WARN** / **FAIL** по кожній метриці
+
+### Крок 6. Запуск тестів
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-### Крок 6. Аналіз у Jupyter Notebook
+### Крок 7. Аналіз у Jupyter Notebook
 
 Відкрийте `analysis_notebook.ipynb` у Jupyter Notebook / JupyterLab для:
 - Покрокового аналізу датасету
@@ -114,6 +131,9 @@ docker compose run generate
 # Аналіз діалогів
 docker compose run analyze
 
+# Оцінка результатів
+docker compose run evaluate
+
 # Запуск тестів
 docker compose run test
 ```
@@ -127,7 +147,7 @@ docker compose run test
 
 ## Формат результатів
 
-Кожен діалог аналізується за 5 параметрами:
+Кожен діалог аналізується за 6 параметрами:
 
 ```json
 {
@@ -137,7 +157,14 @@ docker compose run test
   "quality_score": 2,
   "agent_mistakes": ["ignored_question", "no_resolution"],
   "summary": "Client had a payment issue. Agent ignored the question.",
-  "validation_warnings": ["corrected:quality_score 4→2 (mistakes present)"]
+  "confidence": 0.85,
+  "validation_warnings": ["corrected:quality_score 4->2 (mistakes present)"],
+  "ground_truth": {
+    "expected_intent": "payment_issue",
+    "has_hidden_dissatisfaction": false,
+    "intended_agent_mistakes": ["ignored_question", "no_resolution"],
+    "case_type": "agent_error"
+  }
 }
 ```
 
@@ -146,12 +173,25 @@ docker compose run test
 | `intent` | payment_issue, technical_error, account_access, tariff_question, refund_request, other |
 | `satisfaction` | satisfied, neutral, unsatisfied |
 | `quality_score` | 1-5 |
-| `agent_mistakes` | ignored_question, incorrect_info, rude_tone, no_resolution, unnecessary_escalation |
+| `agent_mistakes` | ignored_question, incorrect_info, rude_tone, no_resolution, unnecessary_escalation, slow_response, generic_response |
+| `confidence` | 0.0-1.0 (впевненість моделі в оцінці satisfaction) |
 | `validation_warnings` | Список попереджень від правило-базової пост-валідації (порожній якщо все узгоджено) |
+
+## Правила пост-валідації
+
+7 детермінованих правил забезпечують логічну узгодженість результатів:
+
+1. Якщо є помилки агента — quality_score <= 3
+2. Якщо є rude_tone — quality_score <= 2
+3. Якщо є no_resolution — satisfaction != satisfied
+4. Якщо satisfied + low score — аномалія (флаг)
+5. Якщо no mistakes + low score — аномалія (флаг)
+6. Якщо unsatisfied + high score — quality_score <= 3
+7. Якщо 3+ помилок — quality_score = 1 (критичний збій)
 
 ## Сценарії діалогів
 
-Датасет покриває 5 категорій × 4 типи кейсів:
+Датасет покриває 5 категорій x 4 типи кейсів:
 
 **Категорії:** проблеми з оплатою, технічні помилки, доступ до акаунту, питання по тарифу, повернення коштів
 
@@ -159,7 +199,7 @@ docker compose run test
 
 **Спеціальні сценарії:**
 - Прихована незадоволеність — клієнт формально ввічливий, але проблема не вирішена
-- Множинні помилки агента — комбінації різних помилок
+- Множинні помилки агента — комбінації різних помилок (включаючи 3+ для критичних кейсів)
 - Крос-категорійні (mixed intent) — клієнт починає з одного питання, але справжня проблема в іншій категорії
 - Edge cases — нестандартні звернення
 

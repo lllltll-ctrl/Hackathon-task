@@ -19,7 +19,7 @@ ANALYSIS_MODEL: str = "gpt-4o"
 
 # Parameters for determinism
 GENERATION_TEMPERATURE: float = 0.3  # Slight variation for dialog diversity
-ANALYSIS_TEMPERATURE: int = 0        # Strict determinism for analysis
+ANALYSIS_TEMPERATURE: float = 0.0    # Strict determinism for analysis
 SEED: int = 42
 
 # Timeout for API requests (seconds)
@@ -60,6 +60,8 @@ AGENT_MISTAKES: list[str] = [
     "rude_tone",
     "no_resolution",
     "unnecessary_escalation",
+    "slow_response",
+    "generic_response",
 ]
 
 # Category descriptions (for prompts)
@@ -87,6 +89,8 @@ MISTAKE_DESCRIPTIONS: dict[str, str] = {
     "rude_tone": "Rude tone — agent responds dismissively, impatiently, or unprofessionally",
     "no_resolution": "No resolution — dialog ends without actually resolving the client's problem",
     "unnecessary_escalation": "Unnecessary escalation — agent redirects to another specialist without attempting to solve it themselves",
+    "slow_response": "Slow response — agent takes unreasonably long to respond, asks client to wait multiple times, or delays action without clear reason",
+    "generic_response": "Generic response — agent gives template/canned answers, links to FAQ, or provides general advice instead of addressing the client's specific situation",
 }
 
 # ── Variation contexts for dialog diversity ──────────────────────────
@@ -300,16 +304,22 @@ def _build_scenario_matrix() -> list[dict[str, Any]]:
         ["rude_tone", "no_resolution"],
         ["ignored_question", "unnecessary_escalation"],
         ["incorrect_info", "no_resolution"],
+        ["generic_response", "no_resolution"],
+        ["slow_response", "ignored_question"],
+        ["generic_response", "slow_response"],
     ]
+    combo_idx = 0
     for category in main_categories:
-        for i, combo in enumerate(mistake_combos[:4]):
+        for _ in range(4):
+            combo = mistake_combos[combo_idx % len(mistake_combos)]
             scenarios.append({
                 "category": category,
                 "case_type": "agent_error",
-                "has_hidden_dissatisfaction": i % 2 == 0,
+                "has_hidden_dissatisfaction": combo_idx % 2 == 0,
                 "intended_agent_mistakes": combo,
-                "variation_index": i % 3,
+                "variation_index": combo_idx % 3,
             })
+            combo_idx += 1
 
     # ── Block 4: Mixed intent + "other" edge cases (20 cases) ──
     # First 10: cross-category mixed intent scenarios

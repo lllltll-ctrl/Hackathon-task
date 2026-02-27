@@ -138,6 +138,7 @@ def parse_analysis_response(raw_response: str, chat_id: str) -> dict[str, Any]:
         "quality_score": data["quality_score"],
         "agent_mistakes": data["agent_mistakes"],
         "summary": data["summary"],
+        "confidence": min(1.0, max(0.0, float(data.get("confidence", 0.8)))),
     }
 
     # Rule-based post-processing validation
@@ -146,10 +147,26 @@ def parse_analysis_response(raw_response: str, chat_id: str) -> dict[str, Any]:
         logger.info(f"Validation corrections for {chat_id}: {warnings}")
     corrected_data["validation_warnings"] = [str(w) for w in warnings]
 
-    # Pydantic validation after corrections
-    AnalysisResult(**corrected_data)
+    # Pydantic validation after corrections (exclude confidence for model check)
+    pydantic_data = {k: v for k, v in corrected_data.items() if k != "confidence"}
+    AnalysisResult(**pydantic_data)
 
     return corrected_data
+
+
+def _embed_ground_truth(result: dict[str, Any], chat: dict[str, Any]) -> dict[str, Any]:
+    """Embed scenario ground truth into analysis result for evaluation."""
+    scenario = chat.get("scenario")
+    if scenario is None:
+        return result
+    result["ground_truth"] = {
+        "expected_intent": scenario.get("category"),
+        "has_hidden_dissatisfaction": scenario.get("has_hidden_dissatisfaction", False),
+        "intended_agent_mistakes": scenario.get("intended_agent_mistakes", []),
+        "case_type": scenario.get("case_type"),
+        "mixed_intent": scenario.get("mixed_intent"),
+    }
+    return result
 
 
 def analyze_single_chat(
@@ -167,7 +184,8 @@ def analyze_single_chat(
             raw = response.choices[0].message.content
             if raw is None:
                 raise ValueError("API returned empty response")
-            return parse_analysis_response(raw, chat_id)
+            result = parse_analysis_response(raw, chat_id)
+            return _embed_ground_truth(result, chat)
         except RateLimitError:
             wait = 2 ** attempt
             logger.warning(f"Rate limit, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
@@ -202,7 +220,8 @@ async def async_analyze_single_chat(
             raw = response.choices[0].message.content
             if raw is None:
                 raise ValueError("API returned empty response")
-            return parse_analysis_response(raw, chat_id)
+            result = parse_analysis_response(raw, chat_id)
+            return _embed_ground_truth(result, chat)
         except RateLimitError:
             wait = 2 ** attempt
             logger.warning(f"Rate limit for {chat_id}, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
@@ -341,29 +360,34 @@ async def _async_main(args: argparse.Namespace) -> None:
 
     pbar = tqdm(total=len(chats_to_analyze), desc="Analyzing dialogs")
 
-    # Process in batches for checkpoint support
-    batch_size = args.concurrency * 2
-    for batch_start in range(0, len(chats_to_analyze), batch_size):
-        batch = chats_to_analyze[batch_start:batch_start + batch_size]
-        gather_tasks = [
-            async_analyze_single_chat(client, chat, semaphore)
-            for chat in batch
-        ]
-
-        gather_results = await asyncio.gather(*gather_tasks, return_exceptions=True)
-
-        for gather_result in gather_results:
-            if isinstance(gather_result, BaseException):
-                logger.error(f"Failed to analyze chat: {gather_result}")
-                failed += 1
-            else:
-                results.append(gather_result)
+    async def _analyze_and_track(chat: dict[str, Any]) -> dict[str, Any] | BaseException:
+        try:
+            result = await async_analyze_single_chat(client, chat, semaphore)
+            return result
+        except BaseException as exc:
+            return exc
+        finally:
             pbar.update(1)
 
-        # Checkpoint after each batch
-        save_analysis_checkpoint(results, failed)
+    # Launch all tasks at once — semaphore controls concurrency
+    tasks = [
+        asyncio.ensure_future(_analyze_and_track(chat))
+        for chat in chats_to_analyze
+    ]
+
+    gather_results = await asyncio.gather(*tasks)
+
+    for gather_result in gather_results:
+        if isinstance(gather_result, BaseException):
+            logger.error(f"Failed to analyze chat: {gather_result}")
+            failed += 1
+        else:
+            results.append(gather_result)
 
     pbar.close()
+
+    # Save checkpoint with final results
+    save_analysis_checkpoint(results, failed)
 
     # Successful completion - remove checkpoint
     clear_analysis_checkpoint()

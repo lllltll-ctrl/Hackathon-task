@@ -9,13 +9,17 @@ A client may formally thank and be polite, but actually be dissatisfied. Analyze
 Behavioral indicators of hidden dissatisfaction:
 - The client's original problem was NOT actually resolved by the end of the dialog
 - The client stops asking follow-up questions and disengages (shorter replies, passive acceptance)
-- The client takes responsibility for the problem when the agent should have resolved it
+- The client takes responsibility for the problem when the agent should have resolved it ("maybe I'm doing something wrong")
 - There is a mismatch between the client's initial urgency/detail and their brief, resigned closing messages
 - The client accepts generic advice, FAQs, or template responses without receiving a concrete solution specific to their situation
 - The client's tone shifts from engaged/hopeful to flat/resigned during the conversation
 - The agent offers only diagnostic suggestions (clear cache, contact bank, try again later) instead of taking action
+- The client says "I'll figure it out myself" or "I'll try again later" — these are resignation signals, NOT satisfaction
 
 Key principle: if the client's ACTUAL PROBLEM was NOT resolved with a CONCRETE action by the agent, the client is unsatisfied regardless of politeness or thanking.
+
+MIXED INTENT detection:
+If the client starts with one problem but the conversation reveals a different underlying issue, classify by the ACTUAL root cause, not the initial complaint.
 
 Respond ONLY with valid JSON."""
 
@@ -71,8 +75,13 @@ Determine the following parameters:
    - rude_tone — rude, dismissive, or unprofessional tone
    - no_resolution — dialog ended without resolving the problem
    - unnecessary_escalation — unnecessary escalation to another specialist
+   - slow_response — agent delays unreasonably, asks client to wait multiple times without action
+   - generic_response — agent gives template/FAQ answers instead of addressing the specific situation
 
 5. **summary** — brief description of the situation (1-2 sentences in English)
+
+6. **confidence** — your confidence in the satisfaction assessment (0.0 to 1.0).
+   Use lower values (0.3-0.6) when the client's true satisfaction is ambiguous (e.g., polite but possibly dissatisfied).
 
 Response — ONLY valid JSON:
 {{
@@ -80,7 +89,8 @@ Response — ONLY valid JSON:
   "satisfaction": "...",
   "quality_score": N,
   "agent_mistakes": [...],
-  "summary": "..."
+  "summary": "...",
+  "confidence": 0.0
 }}"""
 
     return prompt

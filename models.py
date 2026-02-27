@@ -31,6 +31,8 @@ class AgentMistake(str, Enum):
     RUDE_TONE = "rude_tone"
     NO_RESOLUTION = "no_resolution"
     UNNECESSARY_ESCALATION = "unnecessary_escalation"
+    SLOW_RESPONSE = "slow_response"
+    GENERIC_RESPONSE = "generic_response"
 
 
 class Satisfaction(str, Enum):

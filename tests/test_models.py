@@ -86,14 +86,16 @@ class TestAgentMistake:
         "rude_tone",
         "no_resolution",
         "unnecessary_escalation",
+        "slow_response",
+        "generic_response",
     ]
 
     def test_all_mistakes_exist(self):
         for m in self.EXPECTED_MISTAKES:
             assert AgentMistake(m) is not None
 
-    def test_exactly_five_mistakes(self):
-        assert len(AgentMistake) == 5
+    def test_exactly_seven_mistakes(self):
+        assert len(AgentMistake) == 7
 
 
 # ── Satisfaction Enum ────────────────────────────────────────────────

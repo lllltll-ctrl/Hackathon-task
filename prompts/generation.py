@@ -16,6 +16,7 @@ Dialog generation rules:
 5. The first message is always from the client
 6. The last message is always from the agent
 7. Each message must be meaningful (not just "ok" or "thanks")
+8. Messages should vary in length — some short (1 sentence), some longer (2-3 sentences)
 
 Response format — ONLY valid JSON:
 {

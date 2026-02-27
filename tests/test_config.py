@@ -42,6 +42,8 @@ class TestConfigConstants:
             "rude_tone",
             "no_resolution",
             "unnecessary_escalation",
+            "slow_response",
+            "generic_response",
         }
         assert required == set(AGENT_MISTAKES)
 
