@@ -150,9 +150,8 @@ def parse_analysis_response(raw_response: str, chat_id: str) -> dict[str, Any]:
         logger.info(f"Validation corrections for {chat_id}: {warnings}")
     corrected_data["validation_warnings"] = [str(w) for w in warnings]
 
-    # Pydantic validation after corrections (exclude confidence for model check)
-    pydantic_data = {k: v for k, v in corrected_data.items() if k != "confidence"}
-    AnalysisResult(**pydantic_data)
+    # Pydantic validation after corrections
+    AnalysisResult(**corrected_data)
 
     return corrected_data
 

@@ -80,4 +80,5 @@ class AnalysisResult(BaseModel):
     quality_score: int = Field(ge=1, le=5)
     agent_mistakes: list[AgentMistake]
     summary: str
+    confidence: float = Field(ge=0.0, le=1.0, default=0.8)
     validation_warnings: list[str] = Field(default_factory=list)
