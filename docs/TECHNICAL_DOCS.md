@@ -329,7 +329,7 @@ class AnalysisResult(BaseModel):
 |---------|------|
 | **Intent Accuracy** | Точність визначення категорії з per-category breakdown та confusion matrix |
 | **Hidden Dissatisfaction Detection** | Detection rate + false positive rate для successful кейсів |
-| **Mistake Detection** | Precision, recall, F1 per mistake type |
+| **Mistake Detection** | Precision, recall, F1 per mistake type. **Примітка:** Precision розраховується тільки по чатах з ground truth помилками. Низька precision (40-50%) є очікуваною — GPT-4o знаходить додаткові реальні помилки, яких немає в ground truth (наприклад, `no_resolution` в чаті де intended тільки `ignored_question`). Тому грейдинг використовує **recall** як основну метрику |
 | **Quality Consistency** | Середній score по case_type (successful має бути вищий за agent_error) |
 | **Confidence Calibration** | Чи корелює confidence з правильністю (gap між correct/incorrect) |
 
@@ -382,8 +382,8 @@ class AnalysisResult(BaseModel):
 
 | Ситуація | Стратегія |
 |----------|-----------|
-| API rate limit (429) | Exponential backoff: 1s → 2s → 4s, макс 3 спроби |
-| Невалідний JSON від API | Повторний запит (макс 3 спроби), логування помилки |
+| API rate limit (429) | Exponential backoff: 2^n секунд, макс 30с між спробами, макс 5 спроб (конфігурується через `MAX_RETRIES`, `RETRY_BACKOFF_BASE`, `RETRY_BACKOFF_MAX`) |
+| Невалідний JSON від API | Повторний запит (макс 5 спроб), логування помилки |
 | Pydantic validation error | Повторний запит, логування |
 | API timeout | Таймаут 60с, повтор через backoff |
 | API returned empty response | ValueError, повторний запит |

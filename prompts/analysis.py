@@ -71,17 +71,24 @@ Determine the following parameters:
 
 4. **agent_mistakes** — list of agent mistakes (can be empty []):
    - ignored_question — agent ignored the client's specific question
-   - incorrect_info — agent provided incorrect information
+   - incorrect_info — agent provided factually wrong information about the product (wrong prices, non-existent requirements, fake policies, incorrect procedures). Look for statements that contradict how the platform actually works
    - rude_tone — rude, dismissive, or unprofessional tone
    - no_resolution — dialog ended without resolving the problem
    - unnecessary_escalation — unnecessary escalation to another specialist
    - slow_response — agent takes too long, keeps saying "one moment please", "just a second", "let me check" multiple times (2+) without actual progress or resolution
    - generic_response — agent gives template/FAQ answers instead of addressing the specific situation
 
+   Examples of incorrect_info:
+   - Agent states wrong plan prices or feature limits
+   - Agent invents requirements that don't exist ("you need Enterprise plan to reset 2FA")
+   - Agent claims policies that are made up ("refunds require at least two users")
+   - Agent gives wrong technical instructions for the platform
+
    Examples of slow_response:
-   - Agent says "one moment please" 3+ times without solving
-   - Agent repeatedly asks to wait without giving a timeline
-   - Agent delays action while claiming to "check" multiple times
+   - Agent says "one moment please", "please hold on", "thank you for your patience" multiple times without solving
+   - Agent repeatedly asks to wait without giving a timeline or taking action
+   - Agent delays action while claiming to "check", "gather information", "look into it" multiple times
+   - Multiple agent messages contain stalling phrases before any real solution is offered
 
 5. **summary** — brief description of the situation (1-2 sentences in English)
 
