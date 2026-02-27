@@ -26,8 +26,11 @@ from config import (
     CHECKPOINT_INTERVAL,
     DEFAULT_OUTPUT_PATH,
     DEFAULT_RESULTS_PATH,
+    MAX_RETRIES,
     OPENAI_API_KEY,
     REQUEST_TIMEOUT,
+    RETRY_BACKOFF_BASE,
+    RETRY_BACKOFF_MAX,
     SEED,
 )
 from models import AnalysisResult
@@ -172,7 +175,7 @@ def _embed_ground_truth(result: dict[str, Any], chat: dict[str, Any]) -> dict[st
 def analyze_single_chat(
     client: OpenAI,
     chat: dict[str, Any],
-    max_retries: int = 3,
+    max_retries: int = MAX_RETRIES,
 ) -> dict[str, Any]:
     """Analyze a single dialog via OpenAI API (synchronous)."""
     chat_id: str = chat["id"]
@@ -187,7 +190,7 @@ def analyze_single_chat(
             result = parse_analysis_response(raw, chat_id)
             return _embed_ground_truth(result, chat)
         except RateLimitError:
-            wait = 2 ** attempt
+            wait = min(RETRY_BACKOFF_BASE ** attempt, RETRY_BACKOFF_MAX)
             logger.warning(f"Rate limit, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
             time.sleep(wait)
         except (json.JSONDecodeError, ValueError, ValidationError) as e:
@@ -207,7 +210,7 @@ async def async_analyze_single_chat(
     client: AsyncOpenAI,
     chat: dict[str, Any],
     semaphore: asyncio.Semaphore,
-    max_retries: int = 3,
+    max_retries: int = MAX_RETRIES,
 ) -> dict[str, Any]:
     """Analyze a single dialog via OpenAI API (asynchronous)."""
     chat_id: str = chat["id"]
@@ -223,7 +226,7 @@ async def async_analyze_single_chat(
             result = parse_analysis_response(raw, chat_id)
             return _embed_ground_truth(result, chat)
         except RateLimitError:
-            wait = 2 ** attempt
+            wait = min(RETRY_BACKOFF_BASE ** attempt, RETRY_BACKOFF_MAX)
             logger.warning(f"Rate limit for {chat_id}, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
             await asyncio.sleep(wait)
         except (json.JSONDecodeError, ValueError, ValidationError) as e:
@@ -309,7 +312,7 @@ def print_summary(results: list[dict[str, Any]]) -> None:
     for level in ["satisfied", "neutral", "unsatisfied"]:
         count = satisfaction_counts.get(level, 0)
         pct = count / total * 100
-        bar = "█" * int(pct / 2)
+        bar = "#" * int(pct / 2)
         print(f"  {level:12s}: {count:3d} ({pct:5.1f}%) {bar}")
 
     print("\nRequest categories:")

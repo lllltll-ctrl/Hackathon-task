@@ -25,8 +25,11 @@ from config import (
     DEFAULT_OUTPUT_PATH,
     GENERATION_MODEL,
     GENERATION_TEMPERATURE,
+    MAX_RETRIES,
     OPENAI_API_KEY,
     REQUEST_TIMEOUT,
+    RETRY_BACKOFF_BASE,
+    RETRY_BACKOFF_MAX,
     SCENARIO_MATRIX,
     SEED,
     VARIATION_CONTEXTS,
@@ -173,7 +176,7 @@ def generate_single_chat(
     client: OpenAI,
     scenario: dict[str, Any],
     chat_id: str,
-    max_retries: int = 3,
+    max_retries: int = MAX_RETRIES,
 ) -> dict[str, Any]:
     """Generate a single dialog via OpenAI API (synchronous)."""
     request_params = _build_generation_request(scenario)
@@ -185,7 +188,7 @@ def generate_single_chat(
                 response.choices[0].message.content, scenario, chat_id,
             )
         except RateLimitError:
-            wait = 2 ** attempt
+            wait = min(RETRY_BACKOFF_BASE ** attempt, RETRY_BACKOFF_MAX)
             logger.warning(f"Rate limit, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
             time.sleep(wait)
         except (json.JSONDecodeError, ValueError) as e:
@@ -206,7 +209,7 @@ async def async_generate_single_chat(
     scenario: dict[str, Any],
     chat_id: str,
     semaphore: asyncio.Semaphore,
-    max_retries: int = 3,
+    max_retries: int = MAX_RETRIES,
 ) -> dict[str, Any]:
     """Generate a single dialog via OpenAI API (asynchronous)."""
     request_params = _build_generation_request(scenario)
@@ -219,7 +222,7 @@ async def async_generate_single_chat(
                 response.choices[0].message.content, scenario, chat_id,
             )
         except RateLimitError:
-            wait = 2 ** attempt
+            wait = min(RETRY_BACKOFF_BASE ** attempt, RETRY_BACKOFF_MAX)
             logger.warning(f"Rate limit for {chat_id}, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
             await asyncio.sleep(wait)
         except (json.JSONDecodeError, ValueError) as e:

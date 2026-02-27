@@ -25,6 +25,11 @@ SEED: int = 42
 # Timeout for API requests (seconds)
 REQUEST_TIMEOUT: float = 60.0
 
+# Retry configuration for rate limiting
+MAX_RETRIES: int = 5
+RETRY_BACKOFF_BASE: float = 2.0  # Base for exponential backoff
+RETRY_BACKOFF_MAX: float = 30.0   # Max wait time between retries
+
 # Checkpointing: save progress every N chats
 CHECKPOINT_INTERVAL: int = 10
 CHECKPOINT_PATH: str = "data/checkpoint.json"
